@@ -49,7 +49,7 @@ def matmul_node():                                                              
 
     return infer, build, compute                                                # 返回逻辑函数
 
-@node(                                                                          # 注册“求和”节点
+@node(                                                                          # 注册"求和"节点
     opcode="sum",                                                               # 算子唯一标识
     name="求和 (Σ)",                                                             # 节点显示名称
     ports={"in": ["x"], "out": ["result"]},                                     # 定义输入输出端口
@@ -57,15 +57,17 @@ def matmul_node():                                                              
 )
 def sum_node():                                                                 # 求和节点定义
     def infer(input_shapes, params):                                            # 推断输出形状
-        if params["dim"] is None: return [1]                                    # 全局求和返回标量形状
+        if params.get("dim") is None: return [1]                                # 全局求和返回标量形状
         shape = list(input_shapes.get("x", []))                                 # 复制输入形状
-        if not params["keepdim"]: shape.pop(params["dim"])                      # 如果不保持维度，则移除该维度
+        if not params.get("keepdim"): shape.pop(params["dim"])                  # 如果不保持维度，则移除该维度
         return shape                                                            # 返回计算后的形状
 
     def build(params):                                                          # 构建层
-        return None                                                             # 求和运算不需要层
+        return {"dim": params.get("dim"), "keepdim": params.get("keepdim", False)} # 返回参数字典供 compute 使用
 
     def compute(inputs, layer):                                                 # 执行计算
-        return torch.sum(inputs["x"], dim=params["dim"], keepdim=params["keepdim"]) # 执行张量求和
+        dim = layer.get("dim") if layer else None                               # 从 layer 中获取维度参数
+        keepdim = layer.get("keepdim", False) if layer else False               # 从 layer 中获取是否保持维度
+        return torch.sum(inputs["x"], dim=dim, keepdim=keepdim)                 # 执行张量求和
 
     return infer, build, compute                                                # 返回逻辑函数

@@ -24,8 +24,8 @@ class BlueprintEngine:                                                          
 
     def _execute_single_node(self, node_id, results, initial_inputs):           # 执行单个节点的内部逻辑
         node_info = self.nodes_data[node_id]                                    # 获取当前节点的配置信息
-        node_type = node_info['type']                                           # 获取节点类型（如 linear, relu）
-        params = node_info.get('params', {})                                    # 获取节点参数配置
+        node_type = self._get_node_type(node_info)                              # 获取节点类型（从 data.nodeKey 或 type）
+        params = self._extract_params(node_info)                                # 提取节点参数配置
 
         inputs = self._collect_inputs(node_id, results)                         # 第三步：从已有的结果中收集当前节点的输入
         funcs = self._get_node_functions(node_id, node_type)                    # 第四步：获取该节点类型的处理函数集
@@ -118,3 +118,48 @@ class BlueprintEngine:                                                          
         node_def = self.registry.get_function(node_type)                        # 获取节点定义信息
         out_ports = node_def.get('ports', {}).get('out', ['out'])               # 获取定义的输出端口列表，默认为 ['out']
         return {out_ports[0]: output}                                           # 将单值结果包装成以第一个端口名为键的字典
+
+    def _get_node_type(self, node_info):                                        # 获取节点真实类型的方法（适配新蓝图格式）
+        """ 从节点信息中提取真实的 opcode，优先使用 data.nodeKey """               # 方法文档字符串
+        data = node_info.get('data', {})                                        # 获取节点的 data 字段
+        node_key = data.get('nodeKey')                                          # 尝试获取 nodeKey（新格式）
+        if node_key:                                                            # 如果存在 nodeKey
+            return node_key                                                     # 返回 nodeKey 作为节点类型
+        return node_info.get('type')                                            # 否则回退到旧格式的 type 字段
+
+    def _extract_params(self, node_info):                                       # 提取节点参数的方法（适配新蓝图格式）
+        """ 从节点信息中提取参数，处理新格式的 {label, type, default} 结构 """      # 方法文档字符串
+        data = node_info.get('data', {})                                        # 获取节点的 data 字段
+        raw_params = data.get('params', {})                                     # 获取原始参数字典
+        
+        # 检查是否为新格式（参数值是包含 default 的对象）
+        if not raw_params:                                                      # 如果参数为空
+            return node_info.get('params', {})                                  # 回退到旧格式
+        
+        first_value = next(iter(raw_params.values()), None)                     # 获取第一个参数值
+        if isinstance(first_value, dict) and 'default' in first_value:          # 如果是新格式
+            result = {}                                                         # 存储提取后的参数
+            for key, param_obj in raw_params.items():                           # 遍历所有参数
+                default_val = param_obj.get('default')                          # 获取默认值
+                param_type = param_obj.get('type', 'string')                    # 获取参数类型
+                result[key] = self._convert_param_value(default_val, param_type) # 转换参数值类型
+            return result                                                       # 返回提取后的参数字典
+        
+        return raw_params                                                       # 旧格式直接返回
+
+    def _convert_param_value(self, value, param_type):                          # 转换参数值类型的方法
+        """ 根据参数类型转换值 """                                                # 方法文档字符串
+        if value == '' or value is None:                                        # 如果值为空
+            return None                                                         # 返回 None
+        
+        if param_type == 'number':                                              # 如果是数字类型
+            try:                                                                # 尝试转换
+                return float(value) if '.' in str(value) else int(value)        # 根据是否有小数点决定转换类型
+            except (ValueError, TypeError):                                     # 转换失败
+                return None                                                     # 返回 None
+        elif param_type == 'boolean':                                           # 如果是布尔类型
+            if isinstance(value, bool):                                         # 如果已经是布尔值
+                return value                                                    # 直接返回
+            return str(value).lower() in ('true', '1', 'yes')                   # 否则解析字符串
+        
+        return value                                                            # 其他类型直接返回原值

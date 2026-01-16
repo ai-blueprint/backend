@@ -15,10 +15,10 @@ engine = BlueprintEngine(blueprint_data)
 print("✅ 引擎初始化成功")
 
 # 3. 随机输入数据
-# 假设 input_1 的输出维度是 [1, 10]
+# 假设 node-1（输入节点）的输出维度是 [1, 10]
 dummy_input = torch.randn(1, 10)
 initial_data = {
-    "input_1": {"out": dummy_input}
+    "node-1": {"out": dummy_input}
 }
 
 print(f"📥 输入数据形状: {dummy_input.shape}")

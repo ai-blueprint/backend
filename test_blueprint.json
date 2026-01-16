@@ -1,63 +1,166 @@
 {
   "nodes": [
     {
-      "id": "input_1",
-      "type": "input",
-      "params": {
-        "输出维度": [1, 10]
+      "id": "node-1",
+      "type": "baseNode",
+      "position": {
+        "x": 100,
+        "y": 100
+      },
+      "data": {
+        "label": "输入节点",
+        "inputs": [],
+        "outputs": [
+          {
+            "id": "out",
+            "label": "输出"
+          }
+        ],
+        "params": {
+          "输出维度": {
+            "label": "输出维度",
+            "type": "string",
+            "default": "[1, 10]"
+          }
+        },
+        "nodeKey": "input",
+        "color": "rgb(137, 146, 235)"
+      },
+      "measured": {
+        "width": 110,
+        "height": 36
       }
     },
     {
-      "id": "linear_1",
-      "type": "linear",
-      "params": {
-        "输出特征数": 20,
-        "bias": true
+      "id": "node-2",
+      "type": "baseNode",
+      "position": {
+        "x": 350,
+        "y": 100
+      },
+      "data": {
+        "label": "求和节点",
+        "inputs": [
+          {
+            "id": "x",
+            "label": "x"
+          }
+        ],
+        "outputs": [
+          {
+            "id": "result",
+            "label": "结果"
+          }
+        ],
+        "params": {
+          "dim": {
+            "label": "维度",
+            "type": "number",
+            "default": 1
+          },
+          "keepdim": {
+            "label": "保持维度",
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "nodeKey": "sum",
+        "color": "rgb(255, 182, 193)"
+      },
+      "measured": {
+        "width": 160,
+        "height": 36
       }
     },
     {
-      "id": "relu_1",
-      "type": "relu",
-      "params": {}
-    },
-    {
-      "id": "linear_2",
-      "type": "linear",
-      "params": {
-        "输出特征数": 5,
-        "bias": true
+      "id": "node-3",
+      "type": "baseNode",
+      "position": {
+        "x": 604,
+        "y": 286
+      },
+      "data": {
+        "label": "求和节点2",
+        "inputs": [
+          {
+            "id": "x",
+            "label": "x"
+          }
+        ],
+        "outputs": [
+          {
+            "id": "result",
+            "label": "结果"
+          }
+        ],
+        "params": {
+          "dim": {
+            "label": "维度",
+            "type": "number",
+            "default": ""
+          },
+          "keepdim": {
+            "label": "保持维度",
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "nodeKey": "sum",
+        "color": "rgb(242, 177, 144)"
+      },
+      "measured": {
+        "width": 160,
+        "height": 36
       }
     },
     {
-      "id": "output_1",
-      "type": "output",
-      "params": {}
+      "id": "node-4",
+      "type": "baseNode",
+      "position": {
+        "x": 850,
+        "y": 100
+      },
+      "data": {
+        "label": "输出节点",
+        "inputs": [
+          {
+            "id": "in",
+            "label": "输入"
+          }
+        ],
+        "outputs": [],
+        "params": {},
+        "nodeKey": "output",
+        "color": "rgb(242, 177, 144)"
+      },
+      "measured": {
+        "width": 161,
+        "height": 36
+      }
     }
   ],
   "edges": [
     {
-      "source": "input_1",
+      "id": "e1-2",
+      "source": "node-1",
       "sourceHandle": "out",
-      "target": "linear_1",
+      "target": "node-2",
       "targetHandle": "x"
     },
     {
-      "source": "linear_1",
-      "sourceHandle": "y",
-      "target": "relu_1",
-      "targetHandle": "x"
-    },
-    {
-      "source": "relu_1",
+      "id": "e2-3",
+      "source": "node-2",
       "sourceHandle": "result",
-      "target": "linear_2",
+      "target": "node-3",
       "targetHandle": "x"
     },
     {
-      "source": "linear_2",
-      "sourceHandle": "y",
-      "target": "output_1",
+      "id": "e3-4",
+      "source": "node-3",
+      "sourceHandle": "result",
+      "target": "node-4",
       "targetHandle": "in"
     }
-  ]
+  ],
+  "nodeIdCounter": 5
 }
