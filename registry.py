@@ -1,139 +1,86 @@
-""" 
-读取backend/nodes目录下的所有文件，根据节点组定义，注册节点信息到registry中
-registry有两个，一个是给VM调用的，一个是给前端调用的
-"""
-import json
-import os
-from loader import load_all_nodes
+import json                                                                    # 导入 JSON 处理库，用于导出配置文件
+import os                                                                      # 导入操作系统接口库，用于路径处理
+from loader import load_all_nodes                                               # 导入动态加载节点的函数
 
-class Registry:
-    def __init__(self):
-        self.registry = {}  # 存储节点函数对象，供Engine使用
-        self.categories = {}  # 存储类别信息
-        self.nodes = {}  # 存储节点信息
-        
-    def load_nodes(self, nodes_dir=None):
-        """加载所有节点"""
-        if nodes_dir is None:
-            # 默认加载backend/nodes目录
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            nodes_dir = os.path.join(current_dir, 'nodes')
-        
-        # 调用loader加载所有节点
-        self.categories, self.nodes = load_all_nodes(nodes_dir)
-        
-        # 构建registry字典，供Engine使用
-        for node_id, node_info in self.nodes.items():
-            self.registry[node_id] = node_info
-            
-                
-        
-    def get_function(self, opcode):
-        """根据opcode获取节点函数对象，供Engine调用"""
-        return self.registry.get(opcode)
+class Registry:                                                                 # 定义注册表类
+    """ 注册表：负责管理所有算子的定义，并为前端生成配置文件 """                               # 类文档字符串
 
-    def generate_category_files(self, output_dir=None):
-        """为每个分类生成单独的JSON文件，保存到src/assets/node-groups目录"""
-        if output_dir is None:
-            # 默认输出到src/assets/node-groups目录
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            project_root = os.path.dirname(current_dir)
-            output_dir = os.path.join(project_root, 'src', 'assets', 'node-groups')
+    def __init__(self):                                                         # 构造函数，初始化注册表
+        self.categories = {}                                                    # 存储算子分类信息（如：基础、数学、激活函数）
+        self.nodes = {}                                                         # 存储算子详细配置（如：端口、参数、名称）
+
+    def load_nodes(self, nodes_dir=None):                                       # 加载算子的主方法
+        """ 扫描目录并加载所有算子定义 """                                             # 方法文档字符串
+        if nodes_dir is None:                                                   # 如果未指定目录
+            current_dir = os.path.dirname(os.path.abspath(__file__))            # 获取当前文件所在目录
+            nodes_dir = os.path.join(current_dir, 'nodes')                      # 默认指向同级目录下的 nodes 文件夹
         
-        # 确保输出目录存在
-        os.makedirs(output_dir, exist_ok=True)
-        
-        # 为每个分类生成JSON文件
-        for category_id, category_info in self.categories.items():
-            # 获取该分类下的所有节点
-            category_nodes = [n for n in self.nodes.values() if n.get('category') == category_id]
+        self.categories, self.nodes = load_all_nodes(nodes_dir)                 # 调用加载器获取分类和节点数据
+        return self.categories, self.nodes                                      # 返回加载后的结果
+
+    def get_function(self, opcode):                                             # 获取算子定义的方法
+        """ 根据算子 ID 获取其定义信息 """                                             # 方法文档字符串
+        return self.nodes.get(opcode)                                           # 从字典中返回对应的算子配置
+
+    def export_to_frontend(self, output_file="node_registry.json"):             # 导出配置给前端的方法
+        """ 生成符合前端 React Flow 要求的注册表文件 """                                # 方法文档字符串
+        frontend_data = self._prepare_frontend_data()                           # 第一步：准备前端需要的数据结构
             
-            # 转换节点信息
-            nodes_data = []
-            for node_info in category_nodes:
-                node_id = node_info.get('opcode') or list(self.nodes.keys())[list(self.nodes.values()).index(node_info)]
-                node_data = self._convert_node_data(node_id, node_info)
-                nodes_data.append(node_data)
+        with open(output_file, 'w', encoding='utf-8') as f:                     # 第二步：打开输出文件
+            json.dump(frontend_data, f, ensure_ascii=False, indent=2)           # 第三步：将数据以格式化的 JSON 写入文件
             
-            # 构建分类文件数据
-            category_data = {
-                "id": category_id,
-                "name": category_info.get('name', category_id),
-                "color": category_info.get('color', '#82CBFA'),
-                "icon": category_info.get('icon', 'base64…'),
-                "nodes": nodes_data
+        print(f"✅ 前端注册表已生成：{output_file}")                                   # 打印成功提示信息
+
+    def _prepare_frontend_data(self):                                           # 准备前端数据的内部方法
+        data = {"categories": {}, "nodes": {}}                                  # 初始化空的数据结构
+        self._build_categories(data)                                            # 填充分类部分
+        self._build_nodes(data)                                                 # 填充节点部分
+        return data                                                             # 返回构建完成的数据
+
+    def _build_categories(self, data):                                          # 构建分类数据的内部方法
+        for cat_id, cat_info in self.categories.items():                        # 遍历所有已加载的分类
+            data["categories"][cat_id] = {                                      # 填充单个分类信息
+                "label": cat_info.get('name'),                                  # 分类在前端显示的名称
+                "color": cat_info.get('color'),                                 # 分类的主题颜色
+                "nodes": self._get_nodes_in_category(cat_id)                    # 获取该分类下的所有节点 ID 列表
             }
-            
-            # 生成输出文件路径
-            output_file = os.path.join(output_dir, f"{category_id}.json")
-            
-            # 写入JSON文件
-            with open(output_file, 'w', encoding='utf-8') as f:
-                json.dump(category_data, f, ensure_ascii=False, indent=2)
-            
-            print(f"✅ 分类文件已生成：{output_file}")
+
+    def _get_nodes_in_category(self, cat_id):                                   # 获取分类下节点列表的内部方法
+        return [node_id for node_id, n in self.nodes.items() if n.get('category') == cat_id] # 过滤出属于该分类的节点
+
+    def _build_nodes(self, data):                                               # 构建节点数据的内部方法
+        for node_id, node_info in self.nodes.items():                           # 遍历所有已加载的节点
+            data["nodes"][node_id] = self._convert_to_frontend_format(node_id, node_info) # 转换为前端格式并保存
+
+    def _convert_to_frontend_format(self, node_id, node_info):                  # 转换单个节点格式的内部方法
+        params_dict = node_info.get('params', {})                               # 获取节点的原始参数字典
+        converted_params = self._convert_params(params_dict)                    # 将参数字典转换为前端需要的格式
         
-        return True
-    
-    def _convert_node_data(self, node_id, node_info):
-        """转换节点数据格式，特别是params字段"""
-        # 转换params格式：从字典 {key: value} 转换为数组 [{'label': key, 'type': type, 'default': value}]}
-        params_dict = node_info.get('params', {})
-        params_list = []
-        
-        for key, value in params_dict.items():
-            # 根据值的类型推断type字段
-            if isinstance(value, bool):
-                param_type = "boolean"
-                value = bool(value)
-            elif isinstance(value, (int, float)):
-                param_type = "number"
-                # 数值类型默认值转换为字符串
-                value = str(value)
-            elif value is None:
-                param_type = "number"  # 对于sum和mean的dim参数，默认为None
-                value = ""
-            else:
-                param_type = "string"
-            
-            param_item = {
-                "label": key,
-                "type": param_type,
-                "default": value
-            }
-            params_list.append(param_item)
-        
-        return {
-            "label": node_info.get('name', node_id),
-            "opcode": node_id,
-            "inputs": [{"id": p, "label": p} for p in node_info.get('ports', {}).get('in', [])],
-            "outputs": [{"id": p, "label": p} for p in node_info.get('ports', {}).get('out', [])],
-            "params": {p['label']: {"label": p['label'], "type": p['type'], "default": p['default']} for p in params_list}
+        return {                                                                # 返回前端要求的节点对象结构
+            "label": node_info.get('name', node_id),                            # 节点显示名称
+            "opcode": node_id,                                                  # 节点唯一标识符
+            "inputs": [{"id": p, "label": p} for p in node_info.get('ports', {}).get('in', [])], # 输入端口列表
+            "outputs": [{"id": p, "label": p} for p in node_info.get('ports', {}).get('out', [])], # 输出端口列表
+            "params": converted_params                                          # 转换后的参数配置
         }
 
-    def export_to_frontend(self, output_file="node_registry.json"):
-        """导出统一的注册表文件给前端"""
-        frontend_data = {
-            "categories": {},
-            "nodes": {}
-        }
-        
-        for cat_id, cat_info in self.categories.items():
-            frontend_data["categories"][cat_id] = {
-                "label": cat_info.get('name'),
-                "color": cat_info.get('color'),
-                "nodes": [node_id for node_id, n in self.nodes.items() if n.get('category') == cat_id]
+    def _convert_params(self, params_dict):                                     # 转换参数字典的内部方法
+        result = {}                                                             # 存储转换后的参数结果
+        for key, value in params_dict.items():                                  # 遍历原始参数
+            param_type = self._infer_type(value)                                # 推断参数的类型（number/boolean/string）
+            result[key] = {                                                     # 构建前端参数对象
+                "label": key,                                                   # 参数标签
+                "type": param_type,                                             # 参数类型
+                "default": str(value) if isinstance(value, (int, float)) else value # 默认值处理
             }
-            
-        for node_id, node_info in self.nodes.items():
-            frontend_data["nodes"][node_id] = self._convert_node_data(node_id, node_info)
-            
-        with open(output_file, 'w', encoding='utf-8') as f:
-            json.dump(frontend_data, f, ensure_ascii=False, indent=2)
-        print(f"✅ 前端注册表已生成：{output_file}")
+        return result                                                           # 返回转换后的参数字典
 
-# 使用示例
-if __name__ == "__main__":
-    registry = Registry()
-    registry.load_nodes()
-    registry.export_to_frontend()
+    def _infer_type(self, value):                                               # 推断参数类型的内部方法
+        if isinstance(value, bool): return "boolean"                            # 如果是布尔值，返回 boolean
+        if isinstance(value, (int, float)) or value is None: return "number"    # 如果是数值或空，返回 number
+        return "string"                                                         # 其他情况一律视为 string
+
+if __name__ == "__main__":                                                      # 主程序入口
+    reg = Registry()                                                            # 实例化注册表
+    reg.load_nodes()                                                            # 加载所有算子
+    reg.export_to_frontend()                                                    # 导出前端配置文件

@@ -1,0 +1,63 @@
+{
+  "nodes": [
+    {
+      "id": "input_1",
+      "type": "input",
+      "params": {
+        "输出维度": [1, 10]
+      }
+    },
+    {
+      "id": "linear_1",
+      "type": "linear",
+      "params": {
+        "输出特征数": 20,
+        "bias": true
+      }
+    },
+    {
+      "id": "relu_1",
+      "type": "relu",
+      "params": {}
+    },
+    {
+      "id": "linear_2",
+      "type": "linear",
+      "params": {
+        "输出特征数": 5,
+        "bias": true
+      }
+    },
+    {
+      "id": "output_1",
+      "type": "output",
+      "params": {}
+    }
+  ],
+  "edges": [
+    {
+      "source": "input_1",
+      "sourceHandle": "out",
+      "target": "linear_1",
+      "targetHandle": "x"
+    },
+    {
+      "source": "linear_1",
+      "sourceHandle": "y",
+      "target": "relu_1",
+      "targetHandle": "x"
+    },
+    {
+      "source": "relu_1",
+      "sourceHandle": "result",
+      "target": "linear_2",
+      "targetHandle": "x"
+    },
+    {
+      "source": "linear_2",
+      "sourceHandle": "y",
+      "target": "output_1",
+      "targetHandle": "in"
+    }
+  ]
+}

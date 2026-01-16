@@ -1,229 +1,71 @@
 # ================= 数学运算节点组 =================
-import sys
-import os
+import torch                                                                    # 导入 PyTorch 库，用于张量数学运算
+from decorators import category, node                                           # 导入装饰器，用于注册分类和节点
 
-# 添加backend目录到sys.path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-
-from decorators import category, node
-import torch
-
-@category(id="math", name="数学运算", color="#FFB6C1", icon="base64…")
-def math():
-    pass
-
-@node(
-    opcode="add",
-    name="加法 (+)",
-    ports={"in": ["x", "y"], "out": ["result"]},
-    params={}
+@category(                                                                      # 注册“数学运算”分类
+    id="math",                                                                  # 分类唯一标识
+    name="数学运算",                                                              # 分类显示名称
+    color="#FFB6C1",                                                            # 分类主题颜色
+    icon="base64…"                                                              # 分类图标
 )
-def add_node():
-    def infer(input_shapes, params):
-        return input_shapes[0]
+def math_category():                                                            # 数学分类定义函数
+    pass                                                                        # 仅作为装饰器载体
 
-    def build(params):
-        return None
-
-    def compute(inputs, layer):
-        return inputs["x"] + inputs["y"]
-
-    return infer, build, compute
-
-@node(
-    opcode="sub",
-    name="减法 (-)",
-    ports={"in": ["x", "y"], "out": ["result"]},
-    params={}
+@node(                                                                          # 注册“加法”节点
+    opcode="add",                                                               # 算子唯一标识
+    name="加法 (+)",                                                             # 节点显示名称
+    ports={"in": ["x", "y"], "out": ["result"]},                               # 定义输入输出端口
+    params={}                                                                   # 无参数
 )
-def sub_node():
-    def infer(input_shapes, params):
-        return input_shapes[0]
+def add_node():                                                                 # 加法节点定义
+    def infer(input_shapes, params):                                            # 推断输出形状
+        return input_shapes.get("x")                                            # 返回第一个输入的形状
 
-    def build(params):
-        return None
+    def build(params):                                                          # 构建层
+        return None                                                             # 纯数学运算不需要层
 
-    def compute(inputs, layer):
-        return inputs["x"] - inputs["y"]
+    def compute(inputs, layer):                                                 # 执行计算
+        return inputs["x"] + inputs["y"]                                        # 执行张量加法
 
-    return infer, build, compute
+    return infer, build, compute                                                # 返回逻辑函数
 
-@node(
-    opcode="mul",
-    name="乘法 (*)",
-    ports={"in": ["x", "y"], "out": ["result"]},
-    params={}
+@node(                                                                          # 注册“矩阵乘法”节点
+    opcode="matmul",                                                            # 算子唯一标识
+    name="矩阵乘法 (@)",                                                          # 节点显示名称
+    ports={"in": ["x", "y"], "out": ["result"]},                               # 定义输入输出端口
+    params={}                                                                   # 无参数
 )
-def mul_node():
-    def infer(input_shapes, params):
-        return input_shapes[0]
+def matmul_node():                                                              # 矩阵乘法节点定义
+    def infer(input_shapes, params):                                            # 推断输出形状
+        shape_x = input_shapes.get("x", [0, 0])                                 # 获取矩阵 X 的形状
+        shape_y = input_shapes.get("y", [0, 0])                                 # 获取矩阵 Y 的形状
+        return [shape_x[0], shape_y[1]]                                         # 返回矩阵乘法后的形状 [M, P]
 
-    def build(params):
-        return None
+    def build(params):                                                          # 构建层
+        return None                                                             # 矩阵乘法不需要层
 
-    def compute(inputs, layer):
-        return inputs["x"] * inputs["y"]
+    def compute(inputs, layer):                                                 # 执行计算
+        return torch.matmul(inputs["x"], inputs["y"])                           # 执行张量矩阵乘法
 
-    return infer, build, compute
+    return infer, build, compute                                                # 返回逻辑函数
 
-@node(
-    opcode="div",
-    name="除法 (/)",
-    ports={"in": ["x", "y"], "out": ["result"]},
-    params={}
+@node(                                                                          # 注册“求和”节点
+    opcode="sum",                                                               # 算子唯一标识
+    name="求和 (Σ)",                                                             # 节点显示名称
+    ports={"in": ["x"], "out": ["result"]},                                     # 定义输入输出端口
+    params={"dim": None, "keepdim": False}                                      # 定义求和维度和是否保持维度
 )
-def div_node():
-    def infer(input_shapes, params):
-        return input_shapes[0]
+def sum_node():                                                                 # 求和节点定义
+    def infer(input_shapes, params):                                            # 推断输出形状
+        if params["dim"] is None: return [1]                                    # 全局求和返回标量形状
+        shape = list(input_shapes.get("x", []))                                 # 复制输入形状
+        if not params["keepdim"]: shape.pop(params["dim"])                      # 如果不保持维度，则移除该维度
+        return shape                                                            # 返回计算后的形状
 
-    def build(params):
-        return None
+    def build(params):                                                          # 构建层
+        return None                                                             # 求和运算不需要层
 
-    def compute(inputs, layer):
-        return inputs["x"] / inputs["y"]
+    def compute(inputs, layer):                                                 # 执行计算
+        return torch.sum(inputs["x"], dim=params["dim"], keepdim=params["keepdim"]) # 执行张量求和
 
-    return infer, build, compute
-
-@node(
-    opcode="pow",
-    name="幂运算 (^)",
-    ports={"in": ["x", "exponent"], "out": ["result"]},
-    params={}
-)
-def pow_node():
-    def infer(input_shapes, params):
-        return input_shapes[0]
-
-    def build(params):
-        return None
-
-    def compute(inputs, layer):
-        return torch.pow(inputs["x"], inputs["exponent"])
-
-    return infer, build, compute
-
-@node(
-    opcode="sqrt",
-    name="平方根 (√)",
-    ports={"in": ["x"], "out": ["result"]},
-    params={}
-)
-def sqrt_node():
-    def infer(input_shapes, params):
-        return input_shapes[0]
-
-    def build(params):
-        return None
-
-    def compute(inputs, layer):
-        return torch.sqrt(inputs["x"])
-
-    return infer, build, compute
-
-@node(
-    opcode="abs",
-    name="绝对值 (|x|)",
-    ports={"in": ["x"], "out": ["result"]},
-    params={}
-)
-def abs_node():
-    def infer(input_shapes, params):
-        return input_shapes[0]
-
-    def build(params):
-        return None
-
-    def compute(inputs, layer):
-        return torch.abs(inputs["x"])
-
-    return infer, build, compute
-
-@node(
-    opcode="neg",
-    name="取负 (-x)",
-    ports={"in": ["x"], "out": ["result"]},
-    params={}
-)
-def neg_node():
-    def infer(input_shapes, params):
-        return input_shapes[0]
-
-    def build(params):
-        return None
-
-    def compute(inputs, layer):
-        return -inputs["x"]
-
-    return infer, build, compute
-
-@node(
-    opcode="matmul",
-    name="矩阵乘法 (@)",
-    ports={"in": ["x", "y"], "out": ["result"]},
-    params={}
-)
-def matmul_node():
-    def infer(input_shapes, params):
-        return [input_shapes[0][0], input_shapes[1][1]]
-
-    def build(params):
-        return None
-
-    def compute(inputs, layer):
-        return torch.matmul(inputs["x"], inputs["y"])
-
-    return infer, build, compute
-
-@node(
-    opcode="sum",
-    name="求和 (Σ)",
-    ports={"in": ["x"], "out": ["result"]},
-    params={"dim": None, "keepdim": False}
-)
-def sum_node():
-    def infer(input_shapes, params):
-        if params["dim"] is None:
-            return [1]
-        shape = input_shapes[0].copy()
-        if not params["keepdim"]:
-            del shape[params["dim"]]
-        return shape
-
-    def build(params):
-        return None
-
-    def compute(inputs, layer):
-        return torch.sum(
-            inputs["x"],
-            dim=params["dim"],
-            keepdim=params["keepdim"]
-        )
-
-    return infer, build, compute
-
-@node(
-    opcode="mean",
-    name="平均值 (μ)",
-    ports={"in": ["x"], "out": ["result"]},
-    params={"dim": None, "keepdim": False}
-)
-def mean_node():
-    def infer(input_shapes, params):
-        if params["dim"] is None:
-            return [1]
-        shape = input_shapes[0].copy()
-        if not params["keepdim"]:
-            del shape[params["dim"]]
-        return shape
-
-    def build(params):
-        return None
-
-    def compute(inputs, layer):
-        return torch.mean(
-            inputs["x"],
-            dim=params["dim"],
-            keepdim=params["keepdim"]
-        )
-
-    return infer, build, compute
+    return infer, build, compute                                                # 返回逻辑函数

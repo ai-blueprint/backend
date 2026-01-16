@@ -1,163 +1,120 @@
-import torch
-from registry import Registry
+import torch                                                                    # 导入 PyTorch 库，用于张量计算
+from registry import Registry                                                   # 导入节点注册表，用于获取算子定义
 
-class BlueprintEngine:
-    def __init__(self, blueprint_data):
-        """
-        blueprint_data 格式:
-        {
-            "nodes": [
-                {"id": "n1", "type": "linear", "params": {"输出特征数": 128}},
-                ...
-            ],
-            "edges": [
-                {"source": "n1", "sourceHandle": "y", "target": "n2", "targetHandle": "x"}
-            ]
-        }
-        """
-        self.registry = Registry()
-        self.registry.load_nodes()
+class BlueprintEngine:                                                          # 定义蓝图执行引擎类
+    """ 蓝图执行引擎：负责解析蓝图并按顺序执行算子 """                                # 类文档字符串
+
+    def __init__(self, blueprint_data):                                         # 构造函数，初始化引擎
+        self.nodes_data = {n['id']: n for n in blueprint_data.get('nodes', [])} # 将节点列表转为字典，方便通过 ID 快速查找
+        self.edges = blueprint_data.get('edges', [])                            # 获取蓝图中的所有连线（边）
+        self.registry = Registry()                                              # 实例化注册表对象
+        self.registry.load_nodes()                                              # 加载所有可用的节点定义到注册表
+        self.node_layers = {}                                                   # 缓存：存储每个节点实例化的 PyTorch 层
+        self.node_funcs = {}                                                    # 缓存：存储每个节点的 (infer, build, compute) 函数
+
+    def execute(self, initial_inputs):                                          # 执行蓝图的主入口方法
+        """ 执行蓝图并返回结果 """                                                 # 方法文档字符串
+        execution_order = self._get_execution_order()                           # 第一步：计算节点的执行顺序（拓扑排序）
+        results = {}                                                            # 存储每个节点的输出结果，供后续节点使用
+
+        for node_id in execution_order:                                         # 第二步：按计算出的顺序遍历每个节点
+            results[node_id] = self._execute_single_node(node_id, results, initial_inputs) # 执行单个节点并保存结果
+
+        return results                                                          # 返回最终的所有节点计算结果
+
+    def _execute_single_node(self, node_id, results, initial_inputs):           # 执行单个节点的内部逻辑
+        node_info = self.nodes_data[node_id]                                    # 获取当前节点的配置信息
+        node_type = node_info['type']                                           # 获取节点类型（如 linear, relu）
+        params = node_info.get('params', {})                                    # 获取节点参数配置
+
+        inputs = self._collect_inputs(node_id, results)                         # 第三步：从已有的结果中收集当前节点的输入
+        funcs = self._get_node_functions(node_id, node_type)                    # 第四步：获取该节点类型的处理函数集
         
-        self.nodes_data = {n['id']: n for n in blueprint_data.get('nodes', [])}
-        self.edges = blueprint_data.get('edges', [])
+        if funcs is None:                                                       # 如果找不到该算子的定义
+            return None                                                         # 直接返回空结果
+
+        infer, build, compute = funcs                                           # 解构出推断、构建、计算三个核心函数
+        layer = self._get_or_build_layer(node_id, build, inputs, params)        # 第五步：获取或创建该节点的 PyTorch 层实例
+
+        output = self._run_compute(compute, layer, inputs)                      # 第六步：执行实际的张量计算逻辑
+        output = self._handle_special_nodes(node_id, output, initial_inputs)    # 第七步：处理特殊节点（如输入节点透传数据）
+        output = self._ensure_dict_output(node_id, node_type, output)           # 第八步：确保输出格式统一为字典，方便后续查找
+
+        return output                                                           # 返回该节点的最终计算结果
+
+    def _run_compute(self, compute_func, layer, inputs):                        # 执行计算的辅助方法
+        # 适配：如果 layer 是 nn.Module 且 inputs 只有一个输入，则自动解包字典，符合人类直觉
+        if isinstance(layer, torch.nn.Module) and len(inputs) == 1:             # 判断是否为标准层且只有一个输入
+            val = list(inputs.values())[0]                                      # 从输入字典中取出唯一的张量值
+            return compute_func(val, layer)                                     # 传入张量进行计算
         
-        self.node_layers = {} # 存储 build 后的 pytorch 层
-        self.node_funcs = {}  # 存储 (infer, build, compute) 元组
-        self.adjacency = {}
-        self._build_graph()
+        return compute_func(inputs, layer)                                      # 否则传入原始字典进行多输入计算
 
-    def _build_graph(self):
-        for edge in self.edges:
-            src = edge['source']
-            dst = edge['target']
-            if src not in self.adjacency:
-                self.adjacency[src] = []
-            self.adjacency[src].append(edge)
+    def _get_execution_order(self):                                             # 计算执行顺序的方法（拓扑排序）
+        in_degree = {node_id: 0 for node_id in self.nodes_data}                 # 初始化所有节点的入度为 0
+        adj = {node_id: [] for node_id in self.nodes_data}                      # 初始化邻接表，记录节点间的指向关系
 
-    def execute(self, initial_inputs: dict):
-        """
-        initial_inputs: {"node_id": {"port_id": tensor}}
-        """
-        in_degree = {node_id: 0 for node_id in self.nodes_data}
-        for edge in self.edges:
-            in_degree[edge['target']] += 1
+        for edge in self.edges:                                                 # 遍历蓝图中的所有连线
+            src, dst = edge['source'], edge['target']                           # 获取连线的起点和终点 ID
+            adj[src].append(dst)                                                # 在邻接表中添加指向关系
+            in_degree[dst] += 1                                                 # 终点节点的入度加 1
+
+        queue = [n for n, d in in_degree.items() if d == 0]                     # 找到所有入度为 0 的节点作为起始执行点
+        order = []                                                              # 存储排序后的节点 ID 序列
+
+        while queue:                                                            # 当队列不为空时持续处理
+            curr = queue.pop(0)                                                 # 从队列头部取出一个节点
+            order.append(curr)                                                  # 将其加入执行序列
+            for neighbor in adj[curr]:                                          # 遍历该节点指向的所有邻居
+                in_degree[neighbor] -= 1                                        # 邻居节点的入度减 1
+                if in_degree[neighbor] == 0:                                    # 如果邻居的入度变为 0
+                    queue.append(neighbor)                                      # 将其加入待处理队列
+
+        return order                                                            # 返回计算出的线性执行顺序
+
+    def _collect_inputs(self, node_id, results):                                # 收集输入数据的方法
+        node_inputs = {}                                                        # 存储收集到的输入字典
+        for edge in self.edges:                                                 # 遍历所有连线
+            if edge['target'] == node_id:                                       # 如果连线的终点是当前节点
+                src_id = edge['source']                                         # 获取起点节点 ID
+                src_port = edge['sourceHandle']                                 # 获取起点输出端口名
+                dst_port = edge['targetHandle']                                 # 获取当前节点输入端口名
+                if src_id in results and results[src_id]:                       # 如果起点已经产生了计算结果
+                    node_inputs[dst_port] = results[src_id].get(src_port)       # 将起点的输出值映射到当前节点的输入端口
+        return node_inputs                                                      # 返回收集完成的输入字典
+
+    def _get_node_functions(self, node_id, node_type):                          # 获取算子函数的方法
+        if node_id not in self.node_funcs:                                      # 如果缓存中没有该节点的函数
+            node_def = self.registry.get_function(node_type)                    # 从注册表中查找该类型的定义
+            if not node_def:                                                    # 如果找不到定义
+                return None                                                     # 返回空
+            self.node_funcs[node_id] = node_def['func']()                       # 执行定义函数，获取 (infer, build, compute) 元组
+        return self.node_funcs[node_id]                                         # 返回缓存或新获取的函数元组
+
+    def _get_or_build_layer(self, node_id, build_func, inputs, params):         # 获取或构建层的方法
+        if node_id in self.node_layers:                                         # 如果该节点已经实例化过层
+            return self.node_layers[node_id]                                    # 直接返回缓存的层实例
+
+        input_shapes = {k: list(v.shape) if hasattr(v, 'shape') else v for k, v in inputs.items()} # 计算输入的形状信息
+        import inspect                                                          # 导入检查模块，用于分析函数签名
+        sig = inspect.signature(build_func)                                     # 获取 build 函数的参数签名
         
-        queue = [node_id for node_id, degree in in_degree.items() if degree == 0]
-        results = {} # {node_id: {port_id: tensor}}
-
-        # 预加载所有节点的函数
-        for node_id, node_info in self.nodes_data.items():
-            opcode = node_info['type']
-            node_def = self.registry.get_function(opcode)
-            if node_def and 'func' in node_def:
-                self.node_funcs[node_id] = node_def['func']()
-
-        while queue:
-            curr_id = queue.pop(0)
-            node_info = self.nodes_data[curr_id]
-            params = node_info.get('params', {})
+        if len(sig.parameters) == 2:                                            # 如果 build 函数需要两个参数 (shapes, params)
+            self.node_layers[node_id] = build_func(input_shapes, params)        # 传入形状和参数进行构建
+        else:                                                                   # 如果只需要一个参数 (params)
+            self.node_layers[node_id] = build_func(params)                      # 只传入参数进行构建
             
-            if curr_id not in self.node_funcs:
-                print(f"Warning: Node type {node_info['type']} not found")
-                continue
+        return self.node_layers[node_id]                                        # 返回新创建的层实例
 
-            infer, build, compute = self.node_funcs[curr_id]
+    def _handle_special_nodes(self, node_id, output, initial_inputs):            # 处理特殊节点的方法
+        if output is None and node_id in initial_inputs:                        # 如果计算结果为空且存在初始输入（如 input 节点）
+            return initial_inputs[node_id]                                      # 直接透传初始输入数据
+        return output                                                           # 否则返回正常的计算结果
 
-            # 准备输入数据
-            curr_node_inputs = {}
-            if curr_id in initial_inputs:
-                curr_node_inputs.update(initial_inputs[curr_id])
+    def _ensure_dict_output(self, node_id, node_type, output):                  # 统一输出格式的方法
+        if output is None or isinstance(output, dict):                          # 如果输出为空或已经是字典格式
+            return output                                                       # 直接返回
             
-            # 从前驱节点获取输入
-            for edge in self.edges:
-                if edge['target'] == curr_id:
-                    src_id = edge['source']
-                    src_handle = edge['sourceHandle']
-                    target_handle = edge['targetHandle']
-                    if src_id in results and src_handle in results[src_id]:
-                        curr_node_inputs[target_handle] = results[src_id][src_handle]
-
-            # 推断形状并构建层（如果是第一次执行）
-            if curr_id not in self.node_layers:
-                input_shapes = {k: list(v.shape) if hasattr(v, 'shape') else v for k, v in curr_node_inputs.items()}
-                # 适配不同的 build 签名 (有些节点 build 只收 params)
-                import inspect
-                sig = inspect.signature(build)
-                if len(sig.parameters) == 2:
-                    self.node_layers[curr_id] = build(input_shapes, params)
-                else:
-                    self.node_layers[curr_id] = build(params)
-
-            # 执行计算
-            # 适配 compute 签名
-            # 如果是 input 节点且 compute 返回 None，我们尝试从 initial_inputs 获取数据
-            # 适配 compute 签名：有些节点期望 dict，有些期望单个 tensor
-            # 检查 compute 的第一个参数名，如果是 'inputs' 且 node_def 里的 ports['in'] 只有一个，
-            # 或者根据 example.py 的写法，它直接用了 inputs
-            # 实际上 example.py 里的 linear_node compute(inputs, layer) 内部用了 layer(inputs)
-            # 而 torch.nn.Linear 期望 tensor。
-            # 这是一个不一致的地方，我们需要统一。
-            # 按照 nodes/example.py 的逻辑，compute 接收的是 inputs (dict)
-            # 但 linear_node 内部实现可能有误：outputs = layer(inputs) 应该 outputs = layer(inputs['x'])
-            
-            # 为了兼容用户提供的 nodes/example.py，我们在这里做一点 hack
-            # 如果 inputs 只有一个 key，且 layer 是 nn.Module，我们尝试传入该 key 的值
-            if isinstance(self.node_layers[curr_id], torch.nn.Module) and len(curr_node_inputs) == 1:
-                val = list(curr_node_inputs.values())[0]
-                output = compute(val, self.node_layers[curr_id])
-            else:
-                output = compute(curr_node_inputs, self.node_layers[curr_id])
-            
-            if output is None and curr_id in initial_inputs:
-                output = initial_inputs[curr_id]
-
-            # 包装输出为字典（如果不是字典）
-            if not isinstance(output, dict) and output is not None:
-                # 默认取第一个输出端口名
-                opcode = node_info['type']
-                node_def = self.registry.get_function(opcode)
-                out_ports = node_def.get('ports', {}).get('out', ['out'])
-                output = {out_ports[0]: output}
-            
-            results[curr_id] = output
-
-            # 更新后继节点
-            for edge in self.adjacency.get(curr_id, []):
-                neighbor = edge['target']
-                in_degree[neighbor] -= 1
-                if in_degree[neighbor] == 0:
-                    queue.append(neighbor)
-        
-        return results
-
-if __name__ == "__main__":
-    # 测试重构后的引擎
-    test_blueprint = {
-        "nodes": [
-            {"id": "input_1", "type": "input", "params": {"输出维度": [1, 10]}},
-            {"id": "linear_1", "type": "linear", "params": {"输出特征数": 5, "bias": True}},
-            {"id": "output_1", "type": "output", "params": {}}
-        ],
-        "edges": [
-            {"source": "input_1", "sourceHandle": "out", "target": "linear_1", "targetHandle": "x"},
-            {"source": "linear_1", "sourceHandle": "y", "target": "output_1", "targetHandle": "in"}
-        ]
-    }
-    
-    engine = BlueprintEngine(test_blueprint)
-    # 模拟输入数据
-    # 注意：input 节点的 compute 返回 None，但我们需要它能传递数据
-    # 实际中 input 节点应该负责把 params 里的维度转为 tensor 或者接收外部输入
-    initial_data = {
-        "input_1": {"out": torch.randn(1, 10)}
-    }
-    all_results = engine.execute(initial_data)
-    for node_id, res in all_results.items():
-        if res is None:
-            print(f"Node {node_id} Output: None")
-            continue
-        for port, val in res.items():
-            if hasattr(val, 'shape'):
-                print(f"Node {node_id} Port {port} Output Shape: {val.shape}")
-            else:
-                print(f"Node {node_id} Port {port} Output: {val}")
+        node_def = self.registry.get_function(node_type)                        # 获取节点定义信息
+        out_ports = node_def.get('ports', {}).get('out', ['out'])               # 获取定义的输出端口列表，默认为 ['out']
+        return {out_ports[0]: output}                                           # 将单值结果包装成以第一个端口名为键的字典
