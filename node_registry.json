@@ -1,0 +1,291 @@
+{
+  "categories": {
+    "example": {
+      "label": "示例",
+      "color": "#82CBFA",
+      "nodes": [
+        "linear"
+      ]
+    },
+    "math": {
+      "label": "数学运算",
+      "color": "#FFB6C1",
+      "nodes": [
+        "add",
+        "sub",
+        "mul",
+        "div",
+        "pow",
+        "sqrt",
+        "abs",
+        "neg",
+        "matmul",
+        "sum",
+        "mean"
+      ]
+    }
+  },
+  "nodes": {
+    "linear": {
+      "label": "全连接层",
+      "opcode": "linear",
+      "inputs": [
+        {
+          "id": "x",
+          "label": "x"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "y",
+          "label": "y"
+        }
+      ],
+      "params": {
+        "输出特征数": {
+          "label": "输出特征数",
+          "type": "number",
+          "default": "128"
+        },
+        "bias": {
+          "label": "bias",
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "add": {
+      "label": "加法 (+)",
+      "opcode": "add",
+      "inputs": [
+        {
+          "id": "x",
+          "label": "x"
+        },
+        {
+          "id": "y",
+          "label": "y"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "result",
+          "label": "result"
+        }
+      ],
+      "params": {}
+    },
+    "sub": {
+      "label": "减法 (-)",
+      "opcode": "sub",
+      "inputs": [
+        {
+          "id": "x",
+          "label": "x"
+        },
+        {
+          "id": "y",
+          "label": "y"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "result",
+          "label": "result"
+        }
+      ],
+      "params": {}
+    },
+    "mul": {
+      "label": "乘法 (*)",
+      "opcode": "mul",
+      "inputs": [
+        {
+          "id": "x",
+          "label": "x"
+        },
+        {
+          "id": "y",
+          "label": "y"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "result",
+          "label": "result"
+        }
+      ],
+      "params": {}
+    },
+    "div": {
+      "label": "除法 (/)",
+      "opcode": "div",
+      "inputs": [
+        {
+          "id": "x",
+          "label": "x"
+        },
+        {
+          "id": "y",
+          "label": "y"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "result",
+          "label": "result"
+        }
+      ],
+      "params": {}
+    },
+    "pow": {
+      "label": "幂运算 (^)",
+      "opcode": "pow",
+      "inputs": [
+        {
+          "id": "x",
+          "label": "x"
+        },
+        {
+          "id": "exponent",
+          "label": "exponent"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "result",
+          "label": "result"
+        }
+      ],
+      "params": {}
+    },
+    "sqrt": {
+      "label": "平方根 (√)",
+      "opcode": "sqrt",
+      "inputs": [
+        {
+          "id": "x",
+          "label": "x"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "result",
+          "label": "result"
+        }
+      ],
+      "params": {}
+    },
+    "abs": {
+      "label": "绝对值 (|x|)",
+      "opcode": "abs",
+      "inputs": [
+        {
+          "id": "x",
+          "label": "x"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "result",
+          "label": "result"
+        }
+      ],
+      "params": {}
+    },
+    "neg": {
+      "label": "取负 (-x)",
+      "opcode": "neg",
+      "inputs": [
+        {
+          "id": "x",
+          "label": "x"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "result",
+          "label": "result"
+        }
+      ],
+      "params": {}
+    },
+    "matmul": {
+      "label": "矩阵乘法 (@)",
+      "opcode": "matmul",
+      "inputs": [
+        {
+          "id": "x",
+          "label": "x"
+        },
+        {
+          "id": "y",
+          "label": "y"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "result",
+          "label": "result"
+        }
+      ],
+      "params": {}
+    },
+    "sum": {
+      "label": "求和 (Σ)",
+      "opcode": "sum",
+      "inputs": [
+        {
+          "id": "x",
+          "label": "x"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "result",
+          "label": "result"
+        }
+      ],
+      "params": {
+        "dim": {
+          "label": "dim",
+          "type": "number",
+          "default": ""
+        },
+        "keepdim": {
+          "label": "keepdim",
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "mean": {
+      "label": "平均值 (μ)",
+      "opcode": "mean",
+      "inputs": [
+        {
+          "id": "x",
+          "label": "x"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "result",
+          "label": "result"
+        }
+      ],
+      "params": {
+        "dim": {
+          "label": "dim",
+          "type": "number",
+          "default": ""
+        },
+        "keepdim": {
+          "label": "keepdim",
+          "type": "boolean",
+          "default": false
+        }
+      }
+    }
+  }
+}
