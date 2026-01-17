@@ -1,10 +1,51 @@
 {
   "categories": {
-    "example": {
-      "label": "示例",
+    "activations": {
+      "label": "激活函数",
+      "color": "#FFB6C1",
+      "nodes": [
+        "relu",
+        "sigmoid",
+        "tanh",
+        "leaky_relu",
+        "softmax",
+        "gelu",
+        "silu"
+      ]
+    },
+    "basic": {
+      "label": "基础",
+      "color": "#8B92E5",
+      "nodes": [
+        "input",
+        "output"
+      ]
+    },
+    "layers": {
+      "label": "神经网络层",
       "color": "#82CBFA",
       "nodes": [
-        "linear"
+        "linear",
+        "conv2d",
+        "batchnorm2d",
+        "dropout",
+        "maxpool2d",
+        "avgpool2d",
+        "flatten",
+        "lstm",
+        "embedding"
+      ]
+    },
+    "loss": {
+      "label": "损失函数",
+      "color": "#FF6B6B",
+      "nodes": [
+        "cross_entropy",
+        "mse_loss",
+        "l1_loss",
+        "bce_loss",
+        "bce_with_logits",
+        "nll_loss"
       ]
     },
     "math": {
@@ -12,22 +53,178 @@
       "color": "#FFB6C1",
       "nodes": [
         "add",
-        "sub",
-        "mul",
-        "div",
-        "pow",
-        "sqrt",
-        "abs",
-        "neg",
         "matmul",
-        "sum",
-        "mean"
+        "sum"
       ]
     }
   },
   "nodes": {
+    "relu": {
+      "label": "ReLU 激活",
+      "opcode": "relu",
+      "inputs": [
+        {
+          "id": "x",
+          "label": "x"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "result",
+          "label": "result"
+        }
+      ],
+      "params": {}
+    },
+    "sigmoid": {
+      "label": "Sigmoid 激活",
+      "opcode": "sigmoid",
+      "inputs": [
+        {
+          "id": "x",
+          "label": "x"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "result",
+          "label": "result"
+        }
+      ],
+      "params": {}
+    },
+    "tanh": {
+      "label": "Tanh 激活",
+      "opcode": "tanh",
+      "inputs": [
+        {
+          "id": "x",
+          "label": "x"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "result",
+          "label": "result"
+        }
+      ],
+      "params": {}
+    },
+    "leaky_relu": {
+      "label": "LeakyReLU 激活",
+      "opcode": "leaky_relu",
+      "inputs": [
+        {
+          "id": "x",
+          "label": "x"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "result",
+          "label": "result"
+        }
+      ],
+      "params": {
+        "negative_slope": {
+          "label": "negative_slope",
+          "type": "number",
+          "default": "0.01"
+        }
+      }
+    },
+    "softmax": {
+      "label": "Softmax 激活",
+      "opcode": "softmax",
+      "inputs": [
+        {
+          "id": "x",
+          "label": "x"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "result",
+          "label": "result"
+        }
+      ],
+      "params": {
+        "dim": {
+          "label": "dim",
+          "type": "number",
+          "default": "-1"
+        }
+      }
+    },
+    "gelu": {
+      "label": "GELU 激活",
+      "opcode": "gelu",
+      "inputs": [
+        {
+          "id": "x",
+          "label": "x"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "result",
+          "label": "result"
+        }
+      ],
+      "params": {}
+    },
+    "silu": {
+      "label": "SiLU/Swish 激活",
+      "opcode": "silu",
+      "inputs": [
+        {
+          "id": "x",
+          "label": "x"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "result",
+          "label": "result"
+        }
+      ],
+      "params": {}
+    },
+    "input": {
+      "label": "输入",
+      "opcode": "input",
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "out",
+          "label": "out"
+        }
+      ],
+      "params": {
+        "输出维度": {
+          "label": "输出维度",
+          "type": "string",
+          "default": [
+            1,
+            10
+          ]
+        }
+      }
+    },
+    "output": {
+      "label": "输出",
+      "opcode": "output",
+      "inputs": [
+        {
+          "id": "in",
+          "label": "in"
+        }
+      ],
+      "outputs": [],
+      "params": {}
+    },
     "linear": {
-      "label": "全连接层",
+      "label": "全连接层 (Linear)",
       "opcode": "linear",
       "inputs": [
         {
@@ -37,22 +234,418 @@
       ],
       "outputs": [
         {
-          "id": "y",
-          "label": "y"
+          "id": "out",
+          "label": "out"
         }
       ],
       "params": {
-        "输出特征数": {
-          "label": "输出特征数",
+        "in_features": {
+          "label": "in_features",
           "type": "number",
           "default": "128"
+        },
+        "out_features": {
+          "label": "out_features",
+          "type": "number",
+          "default": "64"
         },
         "bias": {
           "label": "bias",
           "type": "boolean",
-          "default": true
+          "default": "True"
         }
       }
+    },
+    "conv2d": {
+      "label": "卷积层 (Conv2d)",
+      "opcode": "conv2d",
+      "inputs": [
+        {
+          "id": "x",
+          "label": "x"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "out",
+          "label": "out"
+        }
+      ],
+      "params": {
+        "in_channels": {
+          "label": "in_channels",
+          "type": "number",
+          "default": "3"
+        },
+        "out_channels": {
+          "label": "out_channels",
+          "type": "number",
+          "default": "64"
+        },
+        "kernel_size": {
+          "label": "kernel_size",
+          "type": "number",
+          "default": "3"
+        },
+        "stride": {
+          "label": "stride",
+          "type": "number",
+          "default": "1"
+        },
+        "padding": {
+          "label": "padding",
+          "type": "number",
+          "default": "1"
+        }
+      }
+    },
+    "batchnorm2d": {
+      "label": "批归一化 (BatchNorm2d)",
+      "opcode": "batchnorm2d",
+      "inputs": [
+        {
+          "id": "x",
+          "label": "x"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "out",
+          "label": "out"
+        }
+      ],
+      "params": {
+        "num_features": {
+          "label": "num_features",
+          "type": "number",
+          "default": "64"
+        }
+      }
+    },
+    "dropout": {
+      "label": "Dropout",
+      "opcode": "dropout",
+      "inputs": [
+        {
+          "id": "x",
+          "label": "x"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "out",
+          "label": "out"
+        }
+      ],
+      "params": {
+        "p": {
+          "label": "p",
+          "type": "number",
+          "default": "0.5"
+        }
+      }
+    },
+    "maxpool2d": {
+      "label": "最大池化 (MaxPool2d)",
+      "opcode": "maxpool2d",
+      "inputs": [
+        {
+          "id": "x",
+          "label": "x"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "out",
+          "label": "out"
+        }
+      ],
+      "params": {
+        "kernel_size": {
+          "label": "kernel_size",
+          "type": "number",
+          "default": "2"
+        },
+        "stride": {
+          "label": "stride",
+          "type": "number",
+          "default": "2"
+        },
+        "padding": {
+          "label": "padding",
+          "type": "number",
+          "default": "0"
+        }
+      }
+    },
+    "avgpool2d": {
+      "label": "平均池化 (AvgPool2d)",
+      "opcode": "avgpool2d",
+      "inputs": [
+        {
+          "id": "x",
+          "label": "x"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "out",
+          "label": "out"
+        }
+      ],
+      "params": {
+        "kernel_size": {
+          "label": "kernel_size",
+          "type": "number",
+          "default": "2"
+        },
+        "stride": {
+          "label": "stride",
+          "type": "number",
+          "default": "2"
+        },
+        "padding": {
+          "label": "padding",
+          "type": "number",
+          "default": "0"
+        }
+      }
+    },
+    "flatten": {
+      "label": "展平 (Flatten)",
+      "opcode": "flatten",
+      "inputs": [
+        {
+          "id": "x",
+          "label": "x"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "out",
+          "label": "out"
+        }
+      ],
+      "params": {
+        "start_dim": {
+          "label": "start_dim",
+          "type": "number",
+          "default": "1"
+        },
+        "end_dim": {
+          "label": "end_dim",
+          "type": "number",
+          "default": "-1"
+        }
+      }
+    },
+    "lstm": {
+      "label": "LSTM",
+      "opcode": "lstm",
+      "inputs": [
+        {
+          "id": "x",
+          "label": "x"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "out",
+          "label": "out"
+        },
+        {
+          "id": "hidden",
+          "label": "hidden"
+        }
+      ],
+      "params": {
+        "input_size": {
+          "label": "input_size",
+          "type": "number",
+          "default": "128"
+        },
+        "hidden_size": {
+          "label": "hidden_size",
+          "type": "number",
+          "default": "256"
+        },
+        "num_layers": {
+          "label": "num_layers",
+          "type": "number",
+          "default": "1"
+        },
+        "batch_first": {
+          "label": "batch_first",
+          "type": "boolean",
+          "default": "True"
+        }
+      }
+    },
+    "embedding": {
+      "label": "嵌入层 (Embedding)",
+      "opcode": "embedding",
+      "inputs": [
+        {
+          "id": "x",
+          "label": "x"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "out",
+          "label": "out"
+        }
+      ],
+      "params": {
+        "num_embeddings": {
+          "label": "num_embeddings",
+          "type": "number",
+          "default": "10000"
+        },
+        "embedding_dim": {
+          "label": "embedding_dim",
+          "type": "number",
+          "default": "128"
+        }
+      }
+    },
+    "cross_entropy": {
+      "label": "交叉熵损失 (CrossEntropy)",
+      "opcode": "cross_entropy",
+      "inputs": [
+        {
+          "id": "input",
+          "label": "input"
+        },
+        {
+          "id": "target",
+          "label": "target"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "loss",
+          "label": "loss"
+        }
+      ],
+      "params": {}
+    },
+    "mse_loss": {
+      "label": "均方误差损失 (MSE)",
+      "opcode": "mse_loss",
+      "inputs": [
+        {
+          "id": "input",
+          "label": "input"
+        },
+        {
+          "id": "target",
+          "label": "target"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "loss",
+          "label": "loss"
+        }
+      ],
+      "params": {
+        "reduction": {
+          "label": "reduction",
+          "type": "string",
+          "default": "mean"
+        }
+      }
+    },
+    "l1_loss": {
+      "label": "L1损失 (MAE)",
+      "opcode": "l1_loss",
+      "inputs": [
+        {
+          "id": "input",
+          "label": "input"
+        },
+        {
+          "id": "target",
+          "label": "target"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "loss",
+          "label": "loss"
+        }
+      ],
+      "params": {
+        "reduction": {
+          "label": "reduction",
+          "type": "string",
+          "default": "mean"
+        }
+      }
+    },
+    "bce_loss": {
+      "label": "二元交叉熵损失 (BCE)",
+      "opcode": "bce_loss",
+      "inputs": [
+        {
+          "id": "input",
+          "label": "input"
+        },
+        {
+          "id": "target",
+          "label": "target"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "loss",
+          "label": "loss"
+        }
+      ],
+      "params": {}
+    },
+    "bce_with_logits": {
+      "label": "BCE With Logits",
+      "opcode": "bce_with_logits",
+      "inputs": [
+        {
+          "id": "input",
+          "label": "input"
+        },
+        {
+          "id": "target",
+          "label": "target"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "loss",
+          "label": "loss"
+        }
+      ],
+      "params": {}
+    },
+    "nll_loss": {
+      "label": "负对数似然损失 (NLL)",
+      "opcode": "nll_loss",
+      "inputs": [
+        {
+          "id": "input",
+          "label": "input"
+        },
+        {
+          "id": "target",
+          "label": "target"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "loss",
+          "label": "loss"
+        }
+      ],
+      "params": {}
     },
     "add": {
       "label": "加法 (+)",
@@ -65,141 +658,6 @@
         {
           "id": "y",
           "label": "y"
-        }
-      ],
-      "outputs": [
-        {
-          "id": "result",
-          "label": "result"
-        }
-      ],
-      "params": {}
-    },
-    "sub": {
-      "label": "减法 (-)",
-      "opcode": "sub",
-      "inputs": [
-        {
-          "id": "x",
-          "label": "x"
-        },
-        {
-          "id": "y",
-          "label": "y"
-        }
-      ],
-      "outputs": [
-        {
-          "id": "result",
-          "label": "result"
-        }
-      ],
-      "params": {}
-    },
-    "mul": {
-      "label": "乘法 (*)",
-      "opcode": "mul",
-      "inputs": [
-        {
-          "id": "x",
-          "label": "x"
-        },
-        {
-          "id": "y",
-          "label": "y"
-        }
-      ],
-      "outputs": [
-        {
-          "id": "result",
-          "label": "result"
-        }
-      ],
-      "params": {}
-    },
-    "div": {
-      "label": "除法 (/)",
-      "opcode": "div",
-      "inputs": [
-        {
-          "id": "x",
-          "label": "x"
-        },
-        {
-          "id": "y",
-          "label": "y"
-        }
-      ],
-      "outputs": [
-        {
-          "id": "result",
-          "label": "result"
-        }
-      ],
-      "params": {}
-    },
-    "pow": {
-      "label": "幂运算 (^)",
-      "opcode": "pow",
-      "inputs": [
-        {
-          "id": "x",
-          "label": "x"
-        },
-        {
-          "id": "exponent",
-          "label": "exponent"
-        }
-      ],
-      "outputs": [
-        {
-          "id": "result",
-          "label": "result"
-        }
-      ],
-      "params": {}
-    },
-    "sqrt": {
-      "label": "平方根 (√)",
-      "opcode": "sqrt",
-      "inputs": [
-        {
-          "id": "x",
-          "label": "x"
-        }
-      ],
-      "outputs": [
-        {
-          "id": "result",
-          "label": "result"
-        }
-      ],
-      "params": {}
-    },
-    "abs": {
-      "label": "绝对值 (|x|)",
-      "opcode": "abs",
-      "inputs": [
-        {
-          "id": "x",
-          "label": "x"
-        }
-      ],
-      "outputs": [
-        {
-          "id": "result",
-          "label": "result"
-        }
-      ],
-      "params": {}
-    },
-    "neg": {
-      "label": "取负 (-x)",
-      "opcode": "neg",
-      "inputs": [
-        {
-          "id": "x",
-          "label": "x"
         }
       ],
       "outputs": [
@@ -250,40 +708,12 @@
         "dim": {
           "label": "dim",
           "type": "number",
-          "default": ""
+          "default": null
         },
         "keepdim": {
           "label": "keepdim",
           "type": "boolean",
-          "default": false
-        }
-      }
-    },
-    "mean": {
-      "label": "平均值 (μ)",
-      "opcode": "mean",
-      "inputs": [
-        {
-          "id": "x",
-          "label": "x"
-        }
-      ],
-      "outputs": [
-        {
-          "id": "result",
-          "label": "result"
-        }
-      ],
-      "params": {
-        "dim": {
-          "label": "dim",
-          "type": "number",
-          "default": ""
-        },
-        "keepdim": {
-          "label": "keepdim",
-          "type": "boolean",
-          "default": false
+          "default": "False"
         }
       }
     }

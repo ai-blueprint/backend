@@ -65,9 +65,9 @@ def sum_node():                                                                 
     def build(params):                                                          # 构建层
         return {"dim": params.get("dim"), "keepdim": params.get("keepdim", False)} # 返回参数字典供 compute 使用
 
-    def compute(inputs, layer):                                                 # 执行计算
+    def compute(x, layer):                                                      # 执行计算（引擎自动解包单输入为张量）
         dim = layer.get("dim") if layer else None                               # 从 layer 中获取维度参数
         keepdim = layer.get("keepdim", False) if layer else False               # 从 layer 中获取是否保持维度
-        return torch.sum(inputs["x"], dim=dim, keepdim=keepdim)                 # 执行张量求和
+        return torch.sum(x, dim=dim, keepdim=keepdim)                           # 执行张量求和
 
     return infer, build, compute                                                # 返回逻辑函数

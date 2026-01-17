@@ -25,7 +25,7 @@ def input_node():                                                               
     def build(input_shapes, params):                                            # 构建 PyTorch 层的函数
         return None                                                             # 输入节点不需要实例化层
 
-    def compute(inputs, layer):                                                 # 执行计算的函数
+    def compute(x, layer):                                                      # 执行计算的函数（引擎传入 None）
         return None                                                             # 输入节点由引擎直接透传数据
 
     return infer, build, compute                                                # 返回核心逻辑函数元组
@@ -43,7 +43,7 @@ def output_node():                                                              
     def build(input_shapes, params):                                            # 构建 PyTorch 层的函数
         return None                                                             # 输出节点不需要实例化层
 
-    def compute(inputs, layer):                                                 # 执行计算的函数
-        return inputs.get("in")                                                 # 直接返回输入的数据
+    def compute(x, layer):                                                      # 执行计算的函数（引擎自动解包单输入为张量）
+        return x                                                                # 直接返回输入的数据
 
     return infer, build, compute                                                # 返回核心逻辑函数元组

@@ -1,5 +1,6 @@
 import torch                                                                    # 导入 PyTorch 库，用于张量计算
 from registry import Registry                                                   # 导入节点注册表，用于获取算子定义
+from utils import extract_single_input                                          # 导入工具函数
 
 class BlueprintEngine:                                                          # 定义蓝图执行引擎类
     """ 蓝图执行引擎：负责解析蓝图并按顺序执行算子 """                                # 类文档字符串
@@ -48,19 +49,45 @@ class BlueprintEngine:                                                          
         infer, build, compute = funcs                                           # 解构出推断、构建、计算三个核心函数
         layer = self._get_or_build_layer(node_id, build, inputs, params)        # 第五步：获取或创建该节点的 PyTorch 层实例
 
-        output = self._run_compute(compute, layer, inputs)                      # 第六步：执行实际的张量计算逻辑
+        output = self._run_compute(compute, layer, inputs, node_type)           # 第六步：执行实际的张量计算逻辑（传入节点类型）
         output = self._handle_special_nodes(node_id, output, initial_inputs)    # 第七步：处理特殊节点（如输入节点透传数据）
         output = self._ensure_dict_output(node_id, node_type, output)           # 第八步：确保输出格式统一为字典，方便后续查找
 
         return output                                                           # 返回该节点的最终计算结果
 
-    def _run_compute(self, compute_func, layer, inputs):                        # 执行计算的辅助方法
-        # 适配：如果 layer 是 nn.Module 且 inputs 只有一个输入，则自动解包字典，符合人类直觉
-        if isinstance(layer, torch.nn.Module) and len(inputs) == 1:             # 判断是否为标准层且只有一个输入
-            val = list(inputs.values())[0]                                      # 从输入字典中取出唯一的张量值
-            return compute_func(val, layer)                                     # 传入张量进行计算
+    def _run_compute(self, compute_func, layer, inputs, node_type):             # 执行计算的辅助方法（引擎统一处理输入格式）
+        """
+        引擎统一负责输入格式转换，节点只需专注于计算逻辑：
+        1. 无输入节点：直接调用 compute(None, layer)
+        2. 单输入 + nn.Module：引擎直接调用 layer(x)
+        3. 单输入 + 非 nn.Module：引擎解包为张量后传给 compute(x, layer)
+        4. 多输入：引擎传入完整字典，compute(inputs, layer) 自行处理
+        """
+        # 获取节点的输入端口定义
+        node_def = self.registry.get_function(node_type)                        # 获取节点定义
+        input_ports = node_def.get('ports', {}).get('in', []) if node_def else []  # 获取输入端口列表
         
-        return compute_func(inputs, layer)                                      # 否则传入原始字典进行多输入计算
+        # 无输入节点（如 input 节点）：直接调用 compute
+        if len(input_ports) == 0:                                               # 如果是无输入节点
+            return compute_func(None, layer)                                    # 直接调用 compute
+        
+        # 单输入情况：使用工具函数智能解包
+        if len(input_ports) == 1:                                               # 如果是单输入节点
+            first_port = input_ports[0]                                         # 获取端口名
+            x = extract_single_input(inputs, first_port)                        # 使用工具函数安全提取张量
+            
+            if x is None:                                                       # 如果输入为空（连接缺失）
+                return None                                                     # 返回 None，跳过计算
+            
+            # 对于 nn.Module 类型的层，引擎直接调用层计算（节点无需关心）
+            if isinstance(layer, torch.nn.Module):                              # 如果是标准 PyTorch 层
+                return layer(x)                                                 # 直接调用层，返回结果
+            
+            # 对于非 nn.Module（如纯函数计算），传入张量给 compute
+            return compute_func(x, layer)                                       # 传入张量和层对象
+        
+        # 多输入情况：传入完整字典，由 compute 函数处理
+        return compute_func(inputs, layer)                                      # 传入字典进行多输入计算
 
     def _get_execution_order(self):                                             # 计算执行顺序的方法（拓扑排序）
         in_degree = {node_id: 0 for node_id in self.nodes_data}                 # 初始化所有节点的入度为 0
