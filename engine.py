@@ -22,6 +22,18 @@ class BlueprintEngine:                                                          
 
         return results                                                          # 返回最终的所有节点计算结果
 
+    async def execute_with_callback(self, initial_inputs, on_node_complete):    # 带回调的异步执行方法
+        """ 执行蓝图，每个节点执行完成后调用回调函数 """                                 # 方法文档字符串
+        execution_order = self._get_execution_order()                           # 第一步：计算节点的执行顺序（拓扑排序）
+        results = {}                                                            # 存储每个节点的输出结果，供后续节点使用
+
+        for node_id in execution_order:                                         # 第二步：按计算出的顺序遍历每个节点
+            results[node_id] = self._execute_single_node(node_id, results, initial_inputs) # 执行单个节点并保存结果
+            if on_node_complete:                                                # 如果提供了回调函数
+                await on_node_complete(node_id, results[node_id])               # 调用回调，传递节点ID和执行结果
+
+        return results                                                          # 返回最终的所有节点计算结果
+
     def _execute_single_node(self, node_id, results, initial_inputs):           # 执行单个节点的内部逻辑
         node_info = self.nodes_data[node_id]                                    # 获取当前节点的配置信息
         node_type = self._get_node_type(node_info)                              # 获取节点类型（从 data.nodeKey 或 type）
