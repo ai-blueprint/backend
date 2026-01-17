@@ -1,45 +1,147 @@
-import os                                                                      # 导入操作系统接口库，用于文件和目录操作
-import importlib.util                                                           # 导入动态导入模块的工具库
-import sys                                                                      # 导入系统参数和函数库，用于管理模块路径
-from decorators import CATEGORIES, NODES                                        # 导入装饰器中定义的全局存储字典
+"""
+节点加载器模块
 
-def load_all_nodes(nodes_dir):                                                  # 定义加载所有算子的主函数
-    """ 动态加载指定目录下的所有 Python 文件，触发装饰器注册算子 """                        # 函数文档字符串
+负责动态加载 nodes/ 目录下的所有节点定义文件。
+
+工作原理：
+1. 扫描指定目录下的所有 Python 文件
+2. 动态导入每个模块
+3. 模块中的装饰器会自动将节点注册到全局字典
+"""
+
+import os
+import sys
+import importlib.util
+from typing import Dict, Tuple, Optional, List
+
+from decorators import CATEGORIES, NODES
+
+
+def load_all_nodes(nodes_dir: str) -> Tuple[Dict, Dict]:
+    """
+    加载指定目录下的所有节点定义
     
-    _reset_registry()                                                           # 第一步：重置注册表，防止重复加载导致数据混乱
+    参数:
+        nodes_dir: 节点目录路径
     
-    if not os.path.exists(nodes_dir):                                           # 第二步：检查目标目录是否存在
-        return {}, {}                                                           # 如果不存在，直接返回空的分类和节点字典
-
-    _scan_and_load_directory(nodes_dir)                                         # 第三步：扫描并加载目录下的所有模块
-
-    return CATEGORIES, NODES                                                    # 返回最终收集到的所有分类和节点定义
-
-def _reset_registry():                                                          # 内部方法：重置全局注册表
-    CATEGORIES.clear()                                                          # 清空分类字典
-    NODES.clear()                                                               # 清空节点字典
-
-def _scan_and_load_directory(nodes_dir):                                        # 内部方法：递归扫描目录
-    for root, _, files in os.walk(nodes_dir):                                   # 递归遍历指定目录
-        for file in files:                                                      # 遍历目录下的每一个文件
-            if _is_node_file(file):                                             # 判断是否为有效的算子定义文件
-                _load_module(root, file)                                        # 加载该 Python 模块
-
-def _is_node_file(file):                                                        # 内部方法：判断文件是否为算子文件
-    return file.endswith(".py") and file != "__init__.py"                       # 必须是 .py 结尾且不是初始化文件
-
-def _load_module(root, file):                                                   # 内部方法：动态加载单个模块
-    file_path = os.path.join(root, file)                                        # 获取文件的完整绝对路径
-    module_name = f"nodes.{file[:-3]}"                                          # 构造模块名称（例如 nodes.math）
+    返回:
+        (categories, nodes) 元组
+    """
+    _reset_registry()
     
-    spec = importlib.util.spec_from_file_location(module_name, file_path)       # 创建模块的导入规范
-    if spec is None or spec.loader is None:                                     # 如果规范或加载器无效
-        return                                                                  # 直接跳过
-
-    module = importlib.util.module_from_spec(spec)                              # 根据规范创建一个新的模块对象
-    sys.modules[module_name] = module                                           # 将模块注册到全局 sys.modules 中
+    if not _validate_directory(nodes_dir):
+        return {}, {}
     
-    try:                                                                        # 尝试执行模块代码
-        spec.loader.exec_module(module)                                         # 执行模块，这会触发文件内的 @node 装饰器
-    except Exception as e:                                                      # 如果加载过程中发生错误
-        print(f"❌ 加载算子模块失败 {file_path}: {e}")                             # 打印错误信息，方便调试
+    _load_directory(nodes_dir)
+    
+    return CATEGORIES, NODES
+
+
+def reload_nodes(nodes_dir: str) -> Tuple[Dict, Dict]:
+    """
+    重新加载节点（用于开发时热更新）
+    
+    参数:
+        nodes_dir: 节点目录路径
+    
+    返回:
+        (categories, nodes) 元组
+    """
+    _unload_node_modules()
+    return load_all_nodes(nodes_dir)
+
+
+# ==================== 内部函数 ====================
+
+def _reset_registry():
+    """重置全局注册表"""
+    CATEGORIES.clear()
+    NODES.clear()
+
+
+def _validate_directory(nodes_dir: str) -> bool:
+    """验证目录是否存在"""
+    if not os.path.exists(nodes_dir):
+        print(f"⚠️ 节点目录不存在: {nodes_dir}")
+        return False
+    if not os.path.isdir(nodes_dir):
+        print(f"⚠️ 路径不是目录: {nodes_dir}")
+        return False
+    return True
+
+
+def _load_directory(nodes_dir: str):
+    """递归加载目录下的所有节点模块"""
+    for root, _, files in os.walk(nodes_dir):
+        for file in files:
+            if _is_node_file(file):
+                _load_module_safe(root, file)
+
+
+def _is_node_file(filename: str) -> bool:
+    """判断文件是否为有效的节点定义文件"""
+    if not filename.endswith(".py"):
+        return False
+    if filename.startswith("_"):
+        return False
+    if filename == "__init__.py":
+        return False
+    return True
+
+
+def _load_module_safe(root: str, filename: str):
+    """安全地加载单个模块"""
+    file_path = os.path.join(root, filename)
+    module_name = _generate_module_name(filename)
+    
+    try:
+        _load_module(file_path, module_name)
+    except Exception as e:
+        print(f"❌ 加载算子模块失败 {file_path}: {e}")
+
+
+def _generate_module_name(filename: str) -> str:
+    """生成模块名称"""
+    base_name = filename[:-3]  # 移除 .py
+    return f"nodes.{base_name}"
+
+
+def _load_module(file_path: str, module_name: str):
+    """动态加载模块"""
+    spec = importlib.util.spec_from_file_location(module_name, file_path)
+    
+    if spec is None or spec.loader is None:
+        raise ImportError(f"无法创建模块规范: {file_path}")
+    
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+
+
+def _unload_node_modules():
+    """卸载已加载的节点模块（用于重新加载）"""
+    to_remove = [name for name in sys.modules if name.startswith("nodes.")]
+    for name in to_remove:
+        del sys.modules[name]
+
+
+# ==================== 工具函数 ====================
+
+def get_loaded_nodes() -> List[str]:
+    """获取已加载的节点列表"""
+    return list(NODES.keys())
+
+
+def get_loaded_categories() -> List[str]:
+    """获取已加载的分类列表"""
+    return list(CATEGORIES.keys())
+
+
+def get_node_info(opcode: str) -> Optional[Dict]:
+    """获取指定节点的信息"""
+    return NODES.get(opcode)
+
+
+def get_category_info(cat_id: str) -> Optional[Dict]:
+    """获取指定分类的信息"""
+    return CATEGORIES.get(cat_id)

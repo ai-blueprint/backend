@@ -1,163 +1,198 @@
-# 蓝图执行引擎 (Blueprint Engine) 项目技术手册
+# 炼丹蓝图 - 后端服务
 
-本手册旨在为没有任何 Python 基础的接手人员提供极其详尽的项目说明。
-我们将摒弃所有比喻，直接从技术定义、代码逻辑和运行机制的角度进行逐一拆解。
-文档分为三个部分：速读（快速了解）、粗读（基础知识与结构）、精读（核心代码逐行解析）。
-请务必按照顺序阅读，以确保能够完整理解项目的每一个技术细节。
+基于 PyTorch 的可视化深度学习模型构建平台后端服务。
 
----
+## 项目结构
 
-## 第一部分：速读 (Quick Start) —— 项目技术定义与运行
+```
+backend/
+├── main.py              # 主程序入口
+├── engine.py            # 蓝图执行引擎
+├── ws_server.py         # WebSocket 服务器
+├── registry.py          # 节点注册表
+├── loader.py            # 节点动态加载器
+├── decorators.py        # 节点注册装饰器
+├── utils/               # 工具函数包
+│   ├── __init__.py      # 统一导出
+│   ├── tensor.py        # 张量操作工具
+│   ├── serialization.py # 序列化工具
+│   ├── validation.py    # 参数验证工具
+│   ├── safe.py          # 容错处理工具
+│   └── graph.py         # 图算法工具
+├── nodes/               # 节点定义
+│   ├── __init__.py      # 节点工厂函数
+│   ├── base.py          # 基础节点（输入/输出）
+│   ├── activations.py   # 激活函数节点
+│   ├── layers.py        # 神经网络层节点
+│   ├── losses.py        # 损失函数节点
+│   └── math.py          # 数学运算节点
+└── tests/               # 测试文件
+```
 
-### 1. 项目的技术本质
-本项目是一个基于 Python 语言开发的后端程序，其核心功能是“解析并执行 JSON 格式的逻辑图”。
-前端会生成一个包含节点（Nodes）和连线（Edges）的 JSON 文件，描述了数据的处理流程。
-后端程序读取这个 JSON 文件，识别出每个节点的类型和参数，并按照连线确定的先后顺序调用相应的数学计算函数。
-最终，程序会输出每一个节点计算后的结果数据。
+## 快速开始
 
-### 2. 核心组件的字面解释
-- **节点 (Node)**：在代码中表现为一个被特定装饰器标记的 Python 函数，包含形状推断、层构建和实际计算三个子逻辑。
-- **端口 (Port)**：节点函数定义的输入和输出标识符，用于在 JSON 数据中匹配数据的来源和去向。
-- **连线 (Edge)**：JSON 数据中的一个对象，记录了源节点的输出端口 ID 和目标节点的输入端口 ID。
-- **蓝图 (Blueprint)**：一个完整的 JSON 数据结构，包含了所有节点的配置信息和它们之间的连接关系。
-- **引擎 (Engine)**：一个 Python 类，负责实现拓扑排序算法，并根据排序结果循环调用节点的计算逻辑。
+### 1. 安装依赖
 
-### 3. 运行环境与启动步骤
-- **Python 版本**：必须使用 Python 3.12 或更高版本，因为项目使用了较新的语法特性。
-- **依赖库安装**：在命令行输入 `pip install torch`，安装 PyTorch 库以支持张量（Tensor）运算。
-- **启动主程序**：输入 `python main.py`，该程序仅用于确认 Python 环境是否配置正确。
-- **运行逻辑测试**：输入 `python test_engine.py`，该程序会加载 `test_blueprint.json` 并执行完整的计算流程。
-- **查看输出结果**：测试程序运行结束后，会在控制台打印出每个节点的计算结果，你可以核对数据是否符合预期。
+```bash
+uv sync
+```
 
----
+### 2. 启动服务器
 
-## 第二部分：粗读 (Deep Dive - Overview) —— 零基础 Python 语法详解
+```bash
+uv run python main.py
+# 或指定端口
+uv run python main.py --host 0.0.0.0 --port 8765
+```
 
-### 1. 变量与数据类型
-**变量**：在 Python 中，变量是用于存储数据的标识符。
-例如 `x = 5`，其中 `x` 是变量名，`5` 是存储的值。
-**数据类型**：本项目主要涉及三种类型：整数（int）、浮点数（float）和张量（torch.Tensor）。
-张量是 PyTorch 库特有的数据结构，用于存储多维数组，是所有节点计算的基础。
-在代码中，你可以通过 `type(变量名)` 来查看一个变量的具体类型。
+### 3. 生成节点注册表
 
-### 2. 函数与类
-**函数**：使用 `def` 关键字定义，是一段可重复执行的代码块。
-函数可以接收输入参数，并通过 `return` 语句返回计算结果。
-**类**：使用 `class` 关键字定义，是创建对象的蓝图。
-类中包含属性（数据）和方法（函数），例如 `BlueprintEngine` 类封装了执行蓝图的所有逻辑。
-在本项目中，你会频繁看到 `self` 关键字，它代表类的一个具体实例。
+```bash
+uv run python registry.py
+```
 
-### 3. 装饰器与动态导入
-**装饰器**：以 `@` 符号开头，用于在不修改原函数代码的前提下，为函数增加额外的功能。
-本项目使用 `@node` 装饰器将普通的 Python 函数注册到全局节点列表中。
-**动态导入**：使用 `importlib` 库在程序运行时根据文件路径加载模块。
-这使得项目可以自动识别 `nodes/` 文件夹下的新文件，而无需手动在主程序中引用。
-这种机制实现了代码的解耦，即增加新功能不需要修改核心引擎代码。
+## 核心模块说明
 
-### 4. 项目文件功能详解
-- `engine.py`：包含 `BlueprintEngine` 类，实现拓扑排序和节点循环执行逻辑。
-- `registry.py`：包含 `Registry` 类，维护全局节点字典，并提供导出前端配置的接口。
-- `loader.py`：包含 `load_all_nodes` 函数，负责递归扫描目录并动态加载 Python 模块。
-- `decorators.py`：定义了全局变量 `NODES` 和装饰器函数，用于收集节点定义信息。
-- `nodes/` 目录：存放所有具体的节点实现文件，每个文件通过装饰器向系统注册节点。
+### 引擎 (engine.py)
 
----
+蓝图执行引擎，负责：
+- 解析蓝图结构
+- 拓扑排序确定执行顺序
+- 按顺序执行节点计算
+- 管理层实例缓存
 
-## 第三部分：精读 (Mastery - Code Analysis) —— 核心代码逐行解析
+```python
+from engine import BlueprintEngine
 
-### 1. 引擎核心逻辑：`engine.py`
-`_get_execution_order` 方法实现了拓扑排序算法。
-它首先计算每个节点的“入度”（即有多少条线指向该节点）。
-入度为 0 的节点被放入初始队列，表示它们可以立即执行。
-在循环中，每执行一个节点，就将其指向的邻居节点的入度减 1。
-当邻居节点的入度降为 0 时，将其加入队列，从而确保了严格的执行先后顺序。
+engine = BlueprintEngine(blueprint_data)
+results = engine.execute(initial_inputs)
+```
 
-`_execute_single_node` 方法是单个节点的执行入口。
-它首先调用 `_collect_inputs` 从 `results` 字典中提取当前节点所需的所有输入数据。
-接着，它通过 `_get_node_functions` 获取该节点类型对应的 `infer`、`build`、`compute` 函数。
-`_get_or_build_layer` 负责实例化 PyTorch 层，并将其缓存以供后续重复使用。
-最后，`_run_compute` 执行实际的数学运算，并将结果存入 `results` 字典。
+### 工具函数 (utils/)
 
-### 2. 自动注册机制：`decorators.py` & `loader.py`
-`decorators.py` 中的 `node` 函数是一个高阶函数，它接收节点的元数据（如 opcode、name）。
-当 Python 解释器读取到带有 `@node` 的函数定义时，会自动调用这个装饰器。
-装饰器将该函数及其元数据存入全局变量 `NODES` 字典中，以 opcode 作为键。
-`loader.py` 通过 `os.walk` 遍历 `nodes/` 目录，并使用 `importlib` 加载每个文件。
-加载文件的过程会触发装饰器的执行，从而实现了节点的自动发现和注册。
+提供多种通用工具：
 
-### 3. 节点开发手册：字面步骤
-1. **定义元数据**：在 `@node` 装饰器中明确指定 `opcode`（唯一标识符）和 `ports`（输入输出端口名）。
-2. **实现 `infer` 函数**：该函数接收输入数据的形状（Shape），并返回输出数据的形状。
-3. **实现 `build` 函数**：该函数根据参数（Params）实例化 PyTorch 的 `nn.Module` 对象。
-4. **实现 `compute` 函数**：该函数接收输入张量和已构建的层对象，执行具体的数学运算并返回结果。
-5. **返回函数元组**：节点主函数必须返回 `(infer, build, compute)` 这三个子函数的引用。
+```python
+from utils import (
+    # 张量工具
+    extract_single_input,
+    ensure_tensor,
+    get_shape,
+    
+    # 序列化
+    serialize_tensor,
+    deserialize_tensor,
+    
+    # 验证
+    validate_params,
+    coerce_type,
+    
+    # 容错
+    safe_call,
+    safe_get,
+    
+    # 图算法
+    topological_sort,
+)
+```
 
-### 4. 避坑指南：字面说明
-- **端口名称不匹配**：JSON 中的 `sourceHandle` 必须与节点定义的输出端口名完全一致，否则引擎无法提取数据。
-- **张量维度冲突**：在 `compute` 函数中进行矩阵运算时，必须确保两个张量的维度是匹配的，否则 PyTorch 会报错。
-- **缺少装饰器**：如果新创建的节点文件没有添加 `@node` 装饰器，`loader.py` 将无法识别该节点。
-- **路径引用错误**：在 `loader.py` 中，模块名称是根据文件路径生成的，因此请勿随意更改 `nodes/` 文件夹的名称。
-- **环境依赖缺失**：如果代码中使用了新的第三方库，必须在 `pyproject.toml` 中添加相应的依赖项。
+### 节点工厂 (nodes/__init__.py)
 
-### 5. 蓝图 JSON 结构深度拆解
-蓝图文件是一个标准的 JSON 对象，根节点包含 `nodes` 列表和 `edges` 列表。
-`nodes` 列表中的每个对象必须包含 `id`（唯一字符串）和 `type`（对应节点的 opcode）。
-`params` 字段是一个字典，其内部的键值对必须与节点定义中的 `params` 声明完全匹配。
-`edges` 列表中的每个对象记录了数据流向，包含 `source`、`target` 以及对应的端口名。
-引擎在解析时会严格校验这些字段的存在性，任何缺失都会导致 `KeyError` 异常。
+提供便捷的节点创建函数：
 
-### 6. 拓扑排序的字面逻辑
-拓扑排序是解决“先做 A 才能做 B”这类依赖问题的标准算法。
-程序首先扫描所有连线，统计每个节点被多少条线指向，这个数字就是“入度”。
-接着，程序将所有入度为 0 的节点（即不依赖任何其他节点的节点）放入一个待处理列表。
-每处理完一个节点，程序就会检查它指向的所有后续节点，并将这些后续节点的入度减 1。
-一旦某个后续节点的入度变为 0，它就会被加入待处理列表，直到所有节点都被处理完毕。
+```python
+from nodes import (
+    create_activation_node,     # 激活函数节点
+    create_module_node,         # nn.Module 节点
+    create_binary_op_node,      # 二元运算节点
+    create_loss_node,           # 损失函数节点
+    create_passthrough_node,    # 透传节点
+)
+```
 
-### 7. 注册表与前端通信逻辑：`registry.py`
-`Registry` 类负责将后端的 Python 节点定义转换为前端 React Flow 可识别的格式。
-`export_to_frontend` 方法会遍历所有已注册的节点，提取其端口和参数配置。
-它会将 Python 的布尔值、数值和字符串类型映射为前端对应的 `boolean`、`number` 和 `string` 类型。
-生成的 `node_registry.json` 文件包含了前端渲染节点 UI 所需的所有元数据。
-这种映射机制确保了前后端在节点定义上的一致性，避免了手动同步配置的繁琐。
+## 创建新节点
 
-### 8. 引擎初始化逻辑详解：`engine.py` 中的 `__init__`
-当你在代码中执行 `engine = BlueprintEngine(blueprint_data)` 时，初始化方法会被触发。
-它首先将蓝图中的节点列表转换为一个以 `id` 为键的字典，以便后续快速查找。
-接着，它会创建一个 `Registry` 实例并调用 `load_nodes` 来加载所有可用的节点定义。
-最后，它初始化了两个空的字典 `node_layers` 和 `node_funcs`，用于存储运行时的缓存数据。
-这种初始化设计确保了引擎在执行计算之前，已经准备好了所有必要的元数据和工具。
+### 简单激活函数
 
-### 9. 函数签名检查逻辑：`inspect.signature` 的应用
-在 `engine.py` 的 `_get_or_build_layer` 方法中，程序使用了 `inspect` 模块。
-该模块的 `signature` 函数可以动态地获取一个函数定义了多少个输入参数。
-引擎通过检查 `build` 函数的参数个数，来决定是传入“输入形状和参数”还是只传入“参数”。
-这种设计允许开发者根据节点的复杂程度，灵活地选择是否需要参考输入数据的形状。
-这种自动适配机制极大的降低了编写新节点时的代码冗余。
+```python
+from decorators import category, node
+from nodes import create_activation_node
+import torch.nn.functional as F
 
-### 10. 输入数据收集逻辑：`_collect_inputs` 详解
-该方法负责在节点执行前，从全局结果字典中提取其所需的输入。
-它会遍历蓝图中的所有连线，筛选出那些目标节点 ID 等于当前节点 ID 的连线。
-对于每一条匹配的连线，它会获取源节点的输出端口名和当前节点的输入端口名。
-然后，它从 `results` 字典中取出源节点对应端口的计算结果，并将其存入一个临时的输入字典中。
-最终返回的这个字典，其键名与节点定义中的输入端口名完全一致，确保了数据的准确对接。
+@node(
+    opcode="my_activation",
+    name="我的激活函数",
+    ports={"in": ["x"], "out": ["result"]},
+    params={}
+)
+def my_activation_node():
+    return create_activation_node(F.relu)
+```
 
-### 11. PyTorch 张量与形状 (Shape) 详解
-在本项目中，所有流转的数据都是 `torch.Tensor` 对象，即“张量”。
-张量的“形状”是一个描述其维度的列表，例如 `[1, 10]` 表示一行十列的矩阵。
-当两个节点连接时，前一个节点的输出形状必须符合后一个节点的输入要求。
-例如，一个输出 `[1, 20]` 的节点不能直接连入一个要求输入为 `[1, 5]` 的节点。
-`infer` 函数的作用就是在实际计算前，通过数学公式计算出输出张量的形状，从而提前发现潜在的连接错误。
+### 带参数的层
 
-### 12. 节点定义文件 (`nodes/base.py`) 的代码结构
-每个节点文件首先通过 `@category` 装饰器定义其所属的分类信息，如 ID、名称和颜色。
-接着，使用 `@node` 装饰器定义具体的算子，包括其唯一的 `opcode` 和端口配置。
-在节点函数内部，必须嵌套定义 `infer`、`build` 和 `compute` 三个局部函数。
-这种嵌套结构的作用是将该节点的所有逻辑封装在一个独立的作用域内，避免与其他节点产生命名冲突。
-最后，节点函数通过 `return` 语句将这三个局部函数的引用以元组的形式返回给注册表。
+```python
+from nodes import create_module_node
+import torch.nn as nn
 
-### 13. 总结与后续开发建议
-至此，你已经完成了对本项目所有核心技术细节的字面学习。
-在后续的开发中，建议你先从修改 `nodes/math.py` 中的简单算子开始练习。
-通过观察 `test_engine.py` 的运行输出，你可以直观地理解数据是如何在代码间流动的。
-如果遇到任何报错，请优先检查 JSON 蓝图中的端口名称是否与 Python 代码中的定义完全一致。
-祝你在接手并完善这个蓝图执行引擎的过程中，能够顺利掌握 Python 编程的核心技能。
+@node(
+    opcode="my_layer",
+    name="我的层",
+    ports={"in": ["x"], "out": ["out"]},
+    params={"hidden_size": 64}
+)
+def my_layer_node():
+    return create_module_node(
+        nn.Linear,
+        build_args=lambda p: (128, p["hidden_size"]),
+    )
+```
+
+## WebSocket 协议
+
+### 请求格式
+
+```json
+// 获取节点注册表
+{"type": "get_registry", "id": "req-1"}
+
+// 运行蓝图
+{"type": "run_blueprint", "id": "req-2", "data": {"blueprint": {...}, "inputs": {...}}}
+```
+
+### 响应格式
+
+```json
+// 注册表
+{"type": "registry", "id": "req-1", "data": {...}}
+
+// 节点执行结果
+{"type": "node_result", "id": "req-2", "data": {"nodeId": "n1", "output": {...}}}
+
+// 执行完成
+{"type": "execution_complete", "id": "req-2", "data": {"success": true, "results": {...}}}
+
+// 错误
+{"type": "error", "id": "req-2", "data": {"message": "错误信息"}}
+```
+
+## 设计原则
+
+1. **语义化函数分离** - 每个函数只做一件事
+2. **容错处理** - 异常不会中断整个执行流程
+3. **松散耦合** - 模块之间通过接口通信
+4. **高可扩展性** - 新节点只需添加装饰器即可注册
+
+## 测试
+
+```bash
+# 运行测试
+uv run python test_refactor.py
+
+# 运行 MLP 测试
+uv run python test_mlp.py
+```
+
+## 许可证
+
+MIT License

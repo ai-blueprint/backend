@@ -1,73 +1,153 @@
-# ================= 数学运算节点组 =================
-import torch                                                                    # 导入 PyTorch 库，用于张量数学运算
-from decorators import category, node                                           # 导入装饰器，用于注册分类和节点
+"""
+数学运算节点组
 
-@category(                                                                      # 注册“数学运算”分类
-    id="math",                                                                  # 分类唯一标识
-    name="数学运算",                                                              # 分类显示名称
-    color="#FFB6C1",                                                            # 分类主题颜色
-    icon="base64…"                                                              # 分类图标
+提供基础数学运算节点：加法、矩阵乘法、求和等。
+"""
+
+import torch
+from typing import Any, Dict, List, Optional
+
+from decorators import category, node
+from nodes import create_binary_op_node
+
+
+# ==================== 分类定义 ====================
+
+@category(
+    id="math",
+    name="数学运算",
+    color="#FFB6C1",
+    icon="base64…"
 )
-def math_category():                                                            # 数学分类定义函数
-    pass                                                                        # 仅作为装饰器载体
+def math_category():
+    pass
 
-@node(                                                                          # 注册“加法”节点
-    opcode="add",                                                               # 算子唯一标识
-    name="加法 (+)",                                                             # 节点显示名称
-    ports={"in": ["x", "y"], "out": ["result"]},                               # 定义输入输出端口
-    params={}                                                                   # 无参数
+
+# ==================== 节点定义 ====================
+
+@node(
+    opcode="add",
+    name="加法 (+)",
+    ports={"in": ["x", "y"], "out": ["result"]},
+    params={}
 )
-def add_node():                                                                 # 加法节点定义
-    def infer(input_shapes, params):                                            # 推断输出形状
-        return input_shapes.get("x")                                            # 返回第一个输入的形状
+def add_node():
+    """张量加法"""
+    return create_binary_op_node(torch.add)
 
-    def build(params):                                                          # 构建层
-        return None                                                             # 纯数学运算不需要层
 
-    def compute(inputs, layer):                                                 # 执行计算
-        return inputs["x"] + inputs["y"]                                        # 执行张量加法
-
-    return infer, build, compute                                                # 返回逻辑函数
-
-@node(                                                                          # 注册“矩阵乘法”节点
-    opcode="matmul",                                                            # 算子唯一标识
-    name="矩阵乘法 (@)",                                                          # 节点显示名称
-    ports={"in": ["x", "y"], "out": ["result"]},                               # 定义输入输出端口
-    params={}                                                                   # 无参数
+@node(
+    opcode="matmul",
+    name="矩阵乘法 (@)",
+    ports={"in": ["x", "y"], "out": ["result"]},
+    params={}
 )
-def matmul_node():                                                              # 矩阵乘法节点定义
-    def infer(input_shapes, params):                                            # 推断输出形状
-        shape_x = input_shapes.get("x", [0, 0])                                 # 获取矩阵 X 的形状
-        shape_y = input_shapes.get("y", [0, 0])                                 # 获取矩阵 Y 的形状
-        return [shape_x[0], shape_y[1]]                                         # 返回矩阵乘法后的形状 [M, P]
+def matmul_node():
+    """矩阵乘法"""
+    def infer(input_shapes: Dict[str, List[int]], params: Dict) -> List[int]:
+        shape_x = input_shapes.get("x", [0, 0])
+        shape_y = input_shapes.get("y", [0, 0])
+        return [shape_x[0], shape_y[-1]]
+    
+    def build(params: Dict) -> None:
+        return None
+    
+    def compute(inputs: Dict[str, torch.Tensor], layer: Any) -> torch.Tensor:
+        return torch.matmul(inputs["x"], inputs["y"])
+    
+    return infer, build, compute
 
-    def build(params):                                                          # 构建层
-        return None                                                             # 矩阵乘法不需要层
 
-    def compute(inputs, layer):                                                 # 执行计算
-        return torch.matmul(inputs["x"], inputs["y"])                           # 执行张量矩阵乘法
-
-    return infer, build, compute                                                # 返回逻辑函数
-
-@node(                                                                          # 注册"求和"节点
-    opcode="sum",                                                               # 算子唯一标识
-    name="求和 (Σ)",                                                             # 节点显示名称
-    ports={"in": ["x"], "out": ["result"]},                                     # 定义输入输出端口
-    params={"dim": None, "keepdim": False}                                      # 定义求和维度和是否保持维度
+@node(
+    opcode="sum",
+    name="求和 (Σ)",
+    ports={"in": ["x"], "out": ["result"]},
+    params={"dim": None, "keepdim": False}
 )
-def sum_node():                                                                 # 求和节点定义
-    def infer(input_shapes, params):                                            # 推断输出形状
-        if params.get("dim") is None: return [1]                                # 全局求和返回标量形状
-        shape = list(input_shapes.get("x", []))                                 # 复制输入形状
-        if not params.get("keepdim"): shape.pop(params["dim"])                  # 如果不保持维度，则移除该维度
-        return shape                                                            # 返回计算后的形状
+def sum_node():
+    """张量求和"""
+    def infer(input_shapes: Dict[str, List[int]], params: Dict) -> List[int]:
+        dim = params.get("dim")
+        if dim is None:
+            return [1]
+        shape = list(input_shapes.get("x", []))
+        if not params.get("keepdim", False) and shape:
+            shape.pop(dim)
+        return shape
+    
+    def build(params: Dict) -> Dict[str, Any]:
+        return {
+            "dim": params.get("dim"),
+            "keepdim": params.get("keepdim", False)
+        }
+    
+    def compute(x: torch.Tensor, layer: Dict[str, Any]) -> torch.Tensor:
+        dim = layer.get("dim") if layer else None
+        keepdim = layer.get("keepdim", False) if layer else False
+        return torch.sum(x, dim=dim, keepdim=keepdim)
+    
+    return infer, build, compute
 
-    def build(params):                                                          # 构建层
-        return {"dim": params.get("dim"), "keepdim": params.get("keepdim", False)} # 返回参数字典供 compute 使用
 
-    def compute(x, layer):                                                      # 执行计算（引擎自动解包单输入为张量）
-        dim = layer.get("dim") if layer else None                               # 从 layer 中获取维度参数
-        keepdim = layer.get("keepdim", False) if layer else False               # 从 layer 中获取是否保持维度
-        return torch.sum(x, dim=dim, keepdim=keepdim)                           # 执行张量求和
+@node(
+    opcode="mul",
+    name="乘法 (*)",
+    ports={"in": ["x", "y"], "out": ["result"]},
+    params={}
+)
+def mul_node():
+    """张量逐元素乘法"""
+    return create_binary_op_node(torch.mul)
 
-    return infer, build, compute                                                # 返回逻辑函数
+
+@node(
+    opcode="sub",
+    name="减法 (-)",
+    ports={"in": ["x", "y"], "out": ["result"]},
+    params={}
+)
+def sub_node():
+    """张量减法"""
+    return create_binary_op_node(torch.sub)
+
+
+@node(
+    opcode="div",
+    name="除法 (/)",
+    ports={"in": ["x", "y"], "out": ["result"]},
+    params={}
+)
+def div_node():
+    """张量除法"""
+    return create_binary_op_node(torch.div)
+
+
+@node(
+    opcode="mean",
+    name="均值 (μ)",
+    ports={"in": ["x"], "out": ["result"]},
+    params={"dim": None, "keepdim": False}
+)
+def mean_node():
+    """张量均值"""
+    def infer(input_shapes: Dict[str, List[int]], params: Dict) -> List[int]:
+        dim = params.get("dim")
+        if dim is None:
+            return [1]
+        shape = list(input_shapes.get("x", []))
+        if not params.get("keepdim", False) and shape:
+            shape.pop(dim)
+        return shape
+    
+    def build(params: Dict) -> Dict[str, Any]:
+        return {
+            "dim": params.get("dim"),
+            "keepdim": params.get("keepdim", False)
+        }
+    
+    def compute(x: torch.Tensor, layer: Dict[str, Any]) -> torch.Tensor:
+        dim = layer.get("dim") if layer else None
+        keepdim = layer.get("keepdim", False) if layer else False
+        return torch.mean(x, dim=dim, keepdim=keepdim)
+    
+    return infer, build, compute

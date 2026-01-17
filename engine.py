@@ -1,204 +1,369 @@
-import torch                                                                    # 导入 PyTorch 库，用于张量计算
-from registry import Registry                                                   # 导入节点注册表，用于获取算子定义
-from utils import extract_single_input                                          # 导入工具函数
+"""
+蓝图执行引擎
 
-class BlueprintEngine:                                                          # 定义蓝图执行引擎类
-    """ 蓝图执行引擎：负责解析蓝图并按顺序执行算子 """                                # 类文档字符串
+核心模块：负责解析蓝图并按拓扑顺序执行节点计算。
 
-    def __init__(self, blueprint_data):                                         # 构造函数，初始化引擎
-        self.nodes_data = {n['id']: n for n in blueprint_data.get('nodes', [])} # 将节点列表转为字典，方便通过 ID 快速查找
-        self.edges = blueprint_data.get('edges', [])                            # 获取蓝图中的所有连线（边）
-        self.registry = Registry()                                              # 实例化注册表对象
-        self.registry.load_nodes()                                              # 加载所有可用的节点定义到注册表
-        self.node_layers = {}                                                   # 缓存：存储每个节点实例化的 PyTorch 层
-        self.node_funcs = {}                                                    # 缓存：存储每个节点的 (infer, build, compute) 函数
+设计原则：
+1. 语义化函数分离 - 每个方法只做一件事
+2. 容错处理 - 异常不会中断整个执行流程
+3. 松散耦合 - 通过Registry获取节点定义
+"""
 
-    def execute(self, initial_inputs):                                          # 执行蓝图的主入口方法
-        """ 执行蓝图并返回结果 """                                                 # 方法文档字符串
-        execution_order = self._get_execution_order()                           # 第一步：计算节点的执行顺序（拓扑排序）
-        results = {}                                                            # 存储每个节点的输出结果，供后续节点使用
+import torch
+import inspect
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
-        for node_id in execution_order:                                         # 第二步：按计算出的顺序遍历每个节点
-            results[node_id] = self._execute_single_node(node_id, results, initial_inputs) # 执行单个节点并保存结果
+from registry import Registry
+from utils.tensor import extract_single_input
+from utils.graph import topological_sort, get_node_inputs
+from utils.validation import normalize_params, coerce_type
+from utils.safe import safe_call, safe_get
 
-        return results                                                          # 返回最终的所有节点计算结果
 
-    async def execute_with_callback(self, initial_inputs, on_node_complete):    # 带回调的异步执行方法
-        """ 执行蓝图，每个节点执行完成后调用回调函数 """                                 # 方法文档字符串
-        execution_order = self._get_execution_order()                           # 第一步：计算节点的执行顺序（拓扑排序）
-        results = {}                                                            # 存储每个节点的输出结果，供后续节点使用
-
-        for node_id in execution_order:                                         # 第二步：按计算出的顺序遍历每个节点
-            results[node_id] = self._execute_single_node(node_id, results, initial_inputs) # 执行单个节点并保存结果
-            if on_node_complete:                                                # 如果提供了回调函数
-                await on_node_complete(node_id, results[node_id])               # 调用回调，传递节点ID和执行结果
-
-        return results                                                          # 返回最终的所有节点计算结果
-
-    def _execute_single_node(self, node_id, results, initial_inputs):           # 执行单个节点的内部逻辑
-        node_info = self.nodes_data[node_id]                                    # 获取当前节点的配置信息
-        node_type = self._get_node_type(node_info)                              # 获取节点类型（从 data.nodeKey 或 type）
-        params = self._extract_params(node_info)                                # 提取节点参数配置
-
-        inputs = self._collect_inputs(node_id, results)                         # 第三步：从已有的结果中收集当前节点的输入
-        funcs = self._get_node_functions(node_id, node_type)                    # 第四步：获取该节点类型的处理函数集
-        
-        if funcs is None:                                                       # 如果找不到该算子的定义
-            return None                                                         # 直接返回空结果
-
-        infer, build, compute = funcs                                           # 解构出推断、构建、计算三个核心函数
-        layer = self._get_or_build_layer(node_id, build, inputs, params)        # 第五步：获取或创建该节点的 PyTorch 层实例
-
-        output = self._run_compute(compute, layer, inputs, node_type)           # 第六步：执行实际的张量计算逻辑（传入节点类型）
-        output = self._handle_special_nodes(node_id, output, initial_inputs)    # 第七步：处理特殊节点（如输入节点透传数据）
-        output = self._ensure_dict_output(node_id, node_type, output)           # 第八步：确保输出格式统一为字典，方便后续查找
-
-        return output                                                           # 返回该节点的最终计算结果
-
-    def _run_compute(self, compute_func, layer, inputs, node_type):             # 执行计算的辅助方法（引擎统一处理输入格式）
+class BlueprintEngine:
+    """
+    蓝图执行引擎
+    
+    职责：
+    1. 解析蓝图结构（节点、边）
+    2. 计算执行顺序（拓扑排序）
+    3. 按顺序执行每个节点
+    4. 管理节点层的缓存
+    
+    使用示例：
+        engine = BlueprintEngine(blueprint_data)
+        results = engine.execute(initial_inputs)
+    """
+    
+    def __init__(self, blueprint_data: Dict[str, Any]):
         """
-        引擎统一负责输入格式转换，节点只需专注于计算逻辑：
-        1. 无输入节点：直接调用 compute(None, layer)
-        2. 单输入 + nn.Module：引擎直接调用 layer(x)
-        3. 单输入 + 非 nn.Module：引擎解包为张量后传给 compute(x, layer)
-        4. 多输入：引擎传入完整字典，compute(inputs, layer) 自行处理
+        初始化引擎
+        
+        参数:
+            blueprint_data: 蓝图数据，包含 nodes 和 edges
         """
-        # 获取节点的输入端口定义
-        node_def = self.registry.get_function(node_type)                        # 获取节点定义
-        input_ports = node_def.get('ports', {}).get('in', []) if node_def else []  # 获取输入端口列表
+        # 解析蓝图数据
+        self.nodes_data = self._parse_nodes(blueprint_data)
+        self.edges = blueprint_data.get('edges', [])
         
-        # 无输入节点（如 input 节点）：直接调用 compute
-        if len(input_ports) == 0:                                               # 如果是无输入节点
-            return compute_func(None, layer)                                    # 直接调用 compute
+        # 初始化注册表
+        self.registry = Registry()
+        self.registry.load_nodes()
         
-        # 单输入情况：使用工具函数智能解包
-        if len(input_ports) == 1:                                               # 如果是单输入节点
-            first_port = input_ports[0]                                         # 获取端口名
-            x = extract_single_input(inputs, first_port)                        # 使用工具函数安全提取张量
+        # 缓存
+        self._layer_cache: Dict[str, Any] = {}      # 节点层实例缓存
+        self._funcs_cache: Dict[str, Tuple] = {}    # 节点函数缓存
+    
+    # ==================== 公共API ====================
+    
+    def execute(self, initial_inputs: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        同步执行蓝图
+        
+        参数:
+            initial_inputs: 初始输入数据 {node_id: {port: value}}
+        
+        返回:
+            所有节点的执行结果 {node_id: output}
+        """
+        execution_order = self._compute_execution_order()
+        results = {}
+        
+        for node_id in execution_order:
+            result = self._execute_node(node_id, results, initial_inputs)
+            results[node_id] = result
+        
+        return results
+    
+    async def execute_with_callback(
+        self, 
+        initial_inputs: Dict[str, Any],
+        on_node_complete: Optional[Callable] = None
+    ) -> Dict[str, Any]:
+        """
+        异步执行蓝图，支持节点完成回调
+        
+        参数:
+            initial_inputs: 初始输入数据
+            on_node_complete: 节点完成时的回调函数 async def(node_id, output)
+        
+        返回:
+            所有节点的执行结果
+        """
+        execution_order = self._compute_execution_order()
+        results = {}
+        
+        for node_id in execution_order:
+            result = self._execute_node(node_id, results, initial_inputs)
+            results[node_id] = result
             
-            if x is None:                                                       # 如果输入为空（连接缺失）
-                return None                                                     # 返回 None，跳过计算
+            if on_node_complete:
+                await on_node_complete(node_id, result)
+        
+        return results
+    
+    # ==================== 执行流程 ====================
+    
+    def _execute_node(
+        self, 
+        node_id: str, 
+        results: Dict[str, Any],
+        initial_inputs: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """
+        执行单个节点
+        
+        执行流程：
+        1. 获取节点信息
+        2. 收集输入数据
+        3. 获取/构建层实例
+        4. 执行计算
+        5. 处理特殊节点
+        6. 规范化输出格式
+        """
+        # Step 1: 获取节点信息
+        node_info = self.nodes_data.get(node_id)
+        if not node_info:
+            return None
+        
+        node_type = self._get_node_type(node_info)
+        params = self._extract_params(node_info)
+        
+        # Step 2: 获取节点函数
+        funcs = self._get_node_funcs(node_id, node_type)
+        if not funcs:
+            return None
+        
+        infer, build, compute = funcs
+        
+        # Step 3: 收集输入
+        inputs = get_node_inputs(node_id, self.edges, results)
+        
+        # Step 4: 构建层
+        layer = self._build_layer(node_id, build, inputs, params)
+        
+        # Step 5: 执行计算
+        output = self._run_compute(compute, layer, inputs, node_type)
+        
+        # Step 6: 后处理
+        output = self._handle_input_node(node_id, output, initial_inputs)
+        output = self._ensure_dict_output(output, node_type)
+        
+        return output
+    
+    def _run_compute(
+        self,
+        compute_func: Callable,
+        layer: Any,
+        inputs: Dict[str, Any],
+        node_type: str
+    ) -> Any:
+        """
+        执行节点计算
+        
+        策略：
+        1. 无输入节点 -> compute(None, layer)
+        2. 单输入 + nn.Module -> 直接调用 layer(x)
+        3. 单输入 + 其他 -> compute(x, layer)
+        4. 多输入 -> compute(inputs, layer)
+        """
+        input_ports = self._get_input_ports(node_type)
+        
+        # 无输入节点
+        if len(input_ports) == 0:
+            return safe_call(compute_func, None, layer, default=None)
+        
+        # 单输入节点
+        if len(input_ports) == 1:
+            port_name = input_ports[0]
+            x = extract_single_input(inputs, port_name)
             
-            # 对于 nn.Module 类型的层，引擎直接调用层计算（节点无需关心）
-            if isinstance(layer, torch.nn.Module):                              # 如果是标准 PyTorch 层
-                return layer(x)                                                 # 直接调用层，返回结果
+            if x is None:
+                return None
             
-            # 对于非 nn.Module（如纯函数计算），传入张量给 compute
-            return compute_func(x, layer)                                       # 传入张量和层对象
-        
-        # 多输入情况：传入完整字典，由 compute 函数处理
-        return compute_func(inputs, layer)                                      # 传入字典进行多输入计算
-
-    def _get_execution_order(self):                                             # 计算执行顺序的方法（拓扑排序）
-        in_degree = {node_id: 0 for node_id in self.nodes_data}                 # 初始化所有节点的入度为 0
-        adj = {node_id: [] for node_id in self.nodes_data}                      # 初始化邻接表，记录节点间的指向关系
-
-        for edge in self.edges:                                                 # 遍历蓝图中的所有连线
-            src, dst = edge['source'], edge['target']                           # 获取连线的起点和终点 ID
-            adj[src].append(dst)                                                # 在邻接表中添加指向关系
-            in_degree[dst] += 1                                                 # 终点节点的入度加 1
-
-        queue = [n for n, d in in_degree.items() if d == 0]                     # 找到所有入度为 0 的节点作为起始执行点
-        order = []                                                              # 存储排序后的节点 ID 序列
-
-        while queue:                                                            # 当队列不为空时持续处理
-            curr = queue.pop(0)                                                 # 从队列头部取出一个节点
-            order.append(curr)                                                  # 将其加入执行序列
-            for neighbor in adj[curr]:                                          # 遍历该节点指向的所有邻居
-                in_degree[neighbor] -= 1                                        # 邻居节点的入度减 1
-                if in_degree[neighbor] == 0:                                    # 如果邻居的入度变为 0
-                    queue.append(neighbor)                                      # 将其加入待处理队列
-
-        return order                                                            # 返回计算出的线性执行顺序
-
-    def _collect_inputs(self, node_id, results):                                # 收集输入数据的方法
-        node_inputs = {}                                                        # 存储收集到的输入字典
-        for edge in self.edges:                                                 # 遍历所有连线
-            if edge['target'] == node_id:                                       # 如果连线的终点是当前节点
-                src_id = edge['source']                                         # 获取起点节点 ID
-                src_port = edge['sourceHandle']                                 # 获取起点输出端口名
-                dst_port = edge['targetHandle']                                 # 获取当前节点输入端口名
-                if src_id in results and results[src_id]:                       # 如果起点已经产生了计算结果
-                    node_inputs[dst_port] = results[src_id].get(src_port)       # 将起点的输出值映射到当前节点的输入端口
-        return node_inputs                                                      # 返回收集完成的输入字典
-
-    def _get_node_functions(self, node_id, node_type):                          # 获取算子函数的方法
-        if node_id not in self.node_funcs:                                      # 如果缓存中没有该节点的函数
-            node_def = self.registry.get_function(node_type)                    # 从注册表中查找该类型的定义
-            if not node_def:                                                    # 如果找不到定义
-                return None                                                     # 返回空
-            self.node_funcs[node_id] = node_def['func']()                       # 执行定义函数，获取 (infer, build, compute) 元组
-        return self.node_funcs[node_id]                                         # 返回缓存或新获取的函数元组
-
-    def _get_or_build_layer(self, node_id, build_func, inputs, params):         # 获取或构建层的方法
-        if node_id in self.node_layers:                                         # 如果该节点已经实例化过层
-            return self.node_layers[node_id]                                    # 直接返回缓存的层实例
-
-        input_shapes = {k: list(v.shape) if hasattr(v, 'shape') else v for k, v in inputs.items()} # 计算输入的形状信息
-        import inspect                                                          # 导入检查模块，用于分析函数签名
-        sig = inspect.signature(build_func)                                     # 获取 build 函数的参数签名
-        
-        if len(sig.parameters) == 2:                                            # 如果 build 函数需要两个参数 (shapes, params)
-            self.node_layers[node_id] = build_func(input_shapes, params)        # 传入形状和参数进行构建
-        else:                                                                   # 如果只需要一个参数 (params)
-            self.node_layers[node_id] = build_func(params)                      # 只传入参数进行构建
+            # nn.Module 直接调用
+            if isinstance(layer, torch.nn.Module):
+                return safe_call(layer, x, default=None)
             
-        return self.node_layers[node_id]                                        # 返回新创建的层实例
-
-    def _handle_special_nodes(self, node_id, output, initial_inputs):            # 处理特殊节点的方法
-        if output is None and node_id in initial_inputs:                        # 如果计算结果为空且存在初始输入（如 input 节点）
-            return initial_inputs[node_id]                                      # 直接透传初始输入数据
-        return output                                                           # 否则返回正常的计算结果
-
-    def _ensure_dict_output(self, node_id, node_type, output):                  # 统一输出格式的方法
-        if output is None or isinstance(output, dict):                          # 如果输出为空或已经是字典格式
-            return output                                                       # 直接返回
-            
-        node_def = self.registry.get_function(node_type)                        # 获取节点定义信息
-        out_ports = node_def.get('ports', {}).get('out', ['out'])               # 获取定义的输出端口列表，默认为 ['out']
-        return {out_ports[0]: output}                                           # 将单值结果包装成以第一个端口名为键的字典
-
-    def _get_node_type(self, node_info):                                        # 获取节点真实类型的方法（适配新蓝图格式）
-        """ 从节点信息中提取真实的 opcode，优先使用 data.nodeKey """               # 方法文档字符串
-        data = node_info.get('data', {})                                        # 获取节点的 data 字段
-        node_key = data.get('nodeKey')                                          # 尝试获取 nodeKey（新格式）
-        if node_key:                                                            # 如果存在 nodeKey
-            return node_key                                                     # 返回 nodeKey 作为节点类型
-        return node_info.get('type')                                            # 否则回退到旧格式的 type 字段
-
-    def _extract_params(self, node_info):                                       # 提取节点参数的方法（适配新蓝图格式）
-        """ 从节点信息中提取参数，处理新格式的 {label, type, default} 结构 """      # 方法文档字符串
-        data = node_info.get('data', {})                                        # 获取节点的 data 字段
-        raw_params = data.get('params', {})                                     # 获取原始参数字典
+            return safe_call(compute_func, x, layer, default=None)
         
-        # 检查是否为新格式（参数值是包含 default 的对象）
-        if not raw_params:                                                      # 如果参数为空
-            return node_info.get('params', {})                                  # 回退到旧格式
+        # 多输入节点
+        return safe_call(compute_func, inputs, layer, default=None)
+    
+    # ==================== 节点信息提取 ====================
+    
+    def _get_node_type(self, node_info: Dict[str, Any]) -> str:
+        """从节点信息中提取类型（opcode）"""
+        return safe_get(node_info, 'data', 'nodeKey') or node_info.get('type', '')
+    
+    def _extract_params(self, node_info: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        从节点信息中提取参数
         
-        first_value = next(iter(raw_params.values()), None)                     # 获取第一个参数值
-        if isinstance(first_value, dict) and 'default' in first_value:          # 如果是新格式
-            result = {}                                                         # 存储提取后的参数
-            for key, param_obj in raw_params.items():                           # 遍历所有参数
-                default_val = param_obj.get('default')                          # 获取默认值
-                param_type = param_obj.get('type', 'string')                    # 获取参数类型
-                result[key] = self._convert_param_value(default_val, param_type) # 转换参数值类型
-            return result                                                       # 返回提取后的参数字典
+        支持两种格式：
+        1. 新格式: data.params = {"key": {"type": "...", "default": value}}
+        2. 旧格式: params = {"key": value}
+        """
+        raw_params = safe_get(node_info, 'data', 'params', default={})
         
-        return raw_params                                                       # 旧格式直接返回
-
-    def _convert_param_value(self, value, param_type):                          # 转换参数值类型的方法
-        """ 根据参数类型转换值 """                                                # 方法文档字符串
-        if value == '' or value is None:                                        # 如果值为空
-            return None                                                         # 返回 None
+        if not raw_params:
+            return node_info.get('params', {})
         
-        if param_type == 'number':                                              # 如果是数字类型
-            try:                                                                # 尝试转换
-                return float(value) if '.' in str(value) else int(value)        # 根据是否有小数点决定转换类型
-            except (ValueError, TypeError):                                     # 转换失败
-                return None                                                     # 返回 None
-        elif param_type == 'boolean':                                           # 如果是布尔类型
-            if isinstance(value, bool):                                         # 如果已经是布尔值
-                return value                                                    # 直接返回
-            return str(value).lower() in ('true', '1', 'yes')                   # 否则解析字符串
+        # 检测是否为新格式
+        first_value = next(iter(raw_params.values()), None)
+        if isinstance(first_value, dict) and 'default' in first_value:
+            return self._convert_new_format_params(raw_params)
         
-        return value                                                            # 其他类型直接返回原值
+        return raw_params
+    
+    def _convert_new_format_params(
+        self, 
+        raw_params: Dict[str, Dict]
+    ) -> Dict[str, Any]:
+        """将新格式参数转换为简单键值对"""
+        result = {}
+        for key, param_obj in raw_params.items():
+            default_val = param_obj.get('default')
+            param_type = param_obj.get('type', 'string')
+            result[key] = coerce_type(default_val, param_type, default=default_val)
+        return result
+    
+    def _get_input_ports(self, node_type: str) -> List[str]:
+        """获取节点的输入端口列表"""
+        node_def = self.registry.get_function(node_type)
+        if not node_def:
+            return []
+        return safe_get(node_def, 'ports', 'in', default=[])
+    
+    def _get_output_ports(self, node_type: str) -> List[str]:
+        """获取节点的输出端口列表"""
+        node_def = self.registry.get_function(node_type)
+        if not node_def:
+            return ['out']
+        return safe_get(node_def, 'ports', 'out', default=['out'])
+    
+    # ==================== 缓存管理 ====================
+    
+    def _get_node_funcs(
+        self, 
+        node_id: str, 
+        node_type: str
+    ) -> Optional[Tuple[Callable, Callable, Callable]]:
+        """获取节点的 (infer, build, compute) 函数三元组"""
+        if node_id in self._funcs_cache:
+            return self._funcs_cache[node_id]
+        
+        node_def = self.registry.get_function(node_type)
+        if not node_def:
+            return None
+        
+        func_factory = node_def.get('func')
+        if not func_factory:
+            return None
+        
+        funcs = safe_call(func_factory, default=None)
+        if funcs:
+            self._funcs_cache[node_id] = funcs
+        
+        return funcs
+    
+    def _build_layer(
+        self,
+        node_id: str,
+        build_func: Callable,
+        inputs: Dict[str, Any],
+        params: Dict[str, Any]
+    ) -> Any:
+        """获取或构建节点的层实例"""
+        if node_id in self._layer_cache:
+            return self._layer_cache[node_id]
+        
+        # 计算输入形状
+        input_shapes = self._compute_input_shapes(inputs)
+        
+        # 根据 build 函数签名决定调用方式
+        layer = self._invoke_build(build_func, input_shapes, params)
+        
+        self._layer_cache[node_id] = layer
+        return layer
+    
+    def _invoke_build(
+        self,
+        build_func: Callable,
+        input_shapes: Dict[str, List[int]],
+        params: Dict[str, Any]
+    ) -> Any:
+        """根据build函数签名调用构建"""
+        sig = inspect.signature(build_func)
+        param_count = len(sig.parameters)
+        
+        if param_count == 2:
+            return safe_call(build_func, input_shapes, params, default=None)
+        else:
+            return safe_call(build_func, params, default=None)
+    
+    def _compute_input_shapes(
+        self, 
+        inputs: Dict[str, Any]
+    ) -> Dict[str, List[int]]:
+        """计算输入的形状信息"""
+        shapes = {}
+        for key, value in inputs.items():
+            if hasattr(value, 'shape'):
+                shapes[key] = list(value.shape)
+            elif isinstance(value, (list, tuple)):
+                shapes[key] = self._infer_list_shape(value)
+            else:
+                shapes[key] = value
+        return shapes
+    
+    @staticmethod
+    def _infer_list_shape(lst: Any) -> List[int]:
+        """推断嵌套列表的形状"""
+        shape = []
+        current = lst
+        while isinstance(current, (list, tuple)):
+            shape.append(len(current))
+            if len(current) == 0:
+                break
+            current = current[0]
+        return shape
+    
+    # ==================== 输出处理 ====================
+    
+    def _handle_input_node(
+        self,
+        node_id: str,
+        output: Any,
+        initial_inputs: Dict[str, Any]
+    ) -> Any:
+        """处理输入节点：透传初始数据"""
+        if output is None and node_id in initial_inputs:
+            return initial_inputs[node_id]
+        return output
+    
+    def _ensure_dict_output(
+        self, 
+        output: Any, 
+        node_type: str
+    ) -> Optional[Dict[str, Any]]:
+        """确保输出为字典格式"""
+        if output is None or isinstance(output, dict):
+            return output
+        
+        out_ports = self._get_output_ports(node_type)
+        return {out_ports[0]: output}
+    
+    # ==================== 蓝图解析 ====================
+    
+    def _parse_nodes(
+        self, 
+        blueprint_data: Dict[str, Any]
+    ) -> Dict[str, Dict[str, Any]]:
+        """将节点列表转换为ID索引的字典"""
+        nodes = blueprint_data.get('nodes', [])
+        return {node['id']: node for node in nodes if 'id' in node}
+    
+    def _compute_execution_order(self) -> List[str]:
+        """计算节点执行顺序（拓扑排序）"""
+        return topological_sort(self.nodes_data, self.edges)

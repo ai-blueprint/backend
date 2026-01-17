@@ -1,49 +1,113 @@
-# ================= 基础节点组 =================
-import torch                                                                    # 导入 PyTorch 库，用于张量操作
+"""
+基础节点组
 
-from decorators import category, node                                           # 导入装饰器，用于注册分类和节点
+提供基础的输入/输出节点。
+"""
 
-@category(                                                                      # 注册“基础”分类
-    id="basic",                                                                 # 分类唯一标识
-    name="基础",                                                                # 分类显示名称
-    color="#8B92E5",                                                            # 分类主题颜色
-    icon="base64…"                                                              # 分类图标
+from typing import Any, Dict, List, Optional
+
+from decorators import category, node
+from nodes import create_passthrough_node
+
+
+# ==================== 分类定义 ====================
+
+@category(
+    id="basic",
+    name="基础",
+    color="#8B92E5",
+    icon="base64…"
 )
-def basic_category():                                                           # 分类定义函数
-    pass                                                                        # 仅作为装饰器载体
+def basic_category():
+    pass
 
-@node(                                                                          # 注册“输入”节点
-    opcode="input",                                                             # 算子唯一标识
-    name="输入",                                                                # 节点显示名称
-    ports={"out": ["out"]},                                                     # 定义输出端口
-    params={"输出维度": [1, 10]},                                                # 定义节点参数
+
+# ==================== 节点定义 ====================
+
+@node(
+    opcode="input",
+    name="输入",
+    ports={"out": ["out"]},
+    params={"输出维度": [1, 10]}
 )
-def input_node():                                                               # 输入节点定义
-    def infer(input_shapes, params):                                            # 推断输出形状的函数
-        return {"out": params["输出维度"]}                                       # 返回参数中定义的维度
+def input_node():
+    """
+    输入节点
+    
+    这是蓝图的入口点，不执行任何计算。
+    引擎会直接透传 initial_inputs 中的数据。
+    """
+    def infer(input_shapes: Dict[str, List[int]], params: Dict) -> Dict[str, List[int]]:
+        return {"out": params.get("输出维度", [1, 10])}
+    
+    def build(input_shapes: Dict[str, List[int]], params: Dict) -> None:
+        return None
+    
+    def compute(x: Any, layer: Any) -> None:
+        # 输入节点不执行计算，由引擎透传数据
+        return None
+    
+    return infer, build, compute
 
-    def build(input_shapes, params):                                            # 构建 PyTorch 层的函数
-        return None                                                             # 输入节点不需要实例化层
 
-    def compute(x, layer):                                                      # 执行计算的函数（引擎传入 None）
-        return None                                                             # 输入节点由引擎直接透传数据
-
-    return infer, build, compute                                                # 返回核心逻辑函数元组
-
-@node(                                                                          # 注册“输出”节点
-    opcode="output",                                                            # 算子唯一标识
-    name="输出",                                                                # 节点显示名称
-    ports={"in": ["in"]},                                                       # 定义输入端口
-    params={},                                                                  # 无参数
+@node(
+    opcode="output",
+    name="输出",
+    ports={"in": ["in"], "out": ["out"]},
+    params={}
 )
-def output_node():                                                              # 输出节点定义
-    def infer(input_shapes, params):                                            # 推断输出形状的函数
-        return None                                                             # 输出节点没有进一步输出
+def output_node():
+    """
+    输出节点
+    
+    这是蓝图的出口点，直接透传输入数据。
+    """
+    return create_passthrough_node(output_port="out")
 
-    def build(input_shapes, params):                                            # 构建 PyTorch 层的函数
-        return None                                                             # 输出节点不需要实例化层
 
-    def compute(x, layer):                                                      # 执行计算的函数（引擎自动解包单输入为张量）
-        return x                                                                # 直接返回输入的数据
+@node(
+    opcode="constant",
+    name="常量",
+    ports={"out": ["out"]},
+    params={"value": 0}
+)
+def constant_node():
+    """常量节点"""
+    import torch
+    
+    def infer(input_shapes: Dict[str, List[int]], params: Dict) -> Dict[str, List[int]]:
+        return {"out": [1]}
+    
+    def build(input_shapes: Dict[str, List[int]], params: Dict) -> Any:
+        value = params.get("value", 0)
+        return torch.tensor([value], dtype=torch.float32)
+    
+    def compute(x: Any, layer: Any) -> Any:
+        return layer
+    
+    return infer, build, compute
 
-    return infer, build, compute                                                # 返回核心逻辑函数元组
+
+@node(
+    opcode="debug",
+    name="调试输出",
+    ports={"in": ["x"], "out": ["out"]},
+    params={"label": "debug"}
+)
+def debug_node():
+    """
+    调试节点
+    
+    打印输入数据并透传。用于调试蓝图执行。
+    """
+    def infer(input_shapes: Dict[str, List[int]], params: Dict) -> Dict[str, List[int]]:
+        return {"out": input_shapes.get("x")}
+    
+    def build(input_shapes: Dict[str, List[int]], params: Dict) -> str:
+        return params.get("label", "debug")
+    
+    def compute(x: Any, layer: str) -> Any:
+        print(f"🔍 [{layer}] shape={x.shape if hasattr(x, 'shape') else 'N/A'}, dtype={x.dtype if hasattr(x, 'dtype') else type(x)}")
+        return x
+    
+    return infer, build, compute
