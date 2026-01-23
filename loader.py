@@ -2,11 +2,6 @@
 节点加载器模块
 
 负责动态加载 nodes/ 目录下的所有节点定义文件。
-
-工作原理：
-1. 扫描指定目录下的所有 Python 文件
-2. 动态导入每个模块
-3. 模块中的装饰器会自动将节点注册到全局字典
 """
 
 import os
@@ -14,36 +9,36 @@ import sys
 import importlib.util
 from typing import Dict, Tuple, Optional, List
 
-from decorators import CATEGORIES, NODES
+import registry
 
 
-def load_all_nodes(nodes_dir: str) -> Tuple[Dict, Dict]:
+def load_all_nodes(nodes_dir: str) -> Tuple[Dict, Dict]:  # 加载所有节点
     """
     加载指定目录下的所有节点定义
-    
+
     参数:
         nodes_dir: 节点目录路径
-    
+
     返回:
         (categories, nodes) 元组
     """
-    _reset_registry()
-    
-    if not _validate_directory(nodes_dir):
+    registry.reset_registry()  # 重置注册表
+
+    if not _validate_directory(nodes_dir):  # 获取 nodes 文件夹路径
         return {}, {}
-    
-    _load_directory(nodes_dir)
-    
-    return CATEGORIES, NODES
+
+    _load_directory(nodes_dir)  # 遍历文件夹
+
+    return registry._categories, registry._nodes  # 返回加载数量
 
 
 def reload_nodes(nodes_dir: str) -> Tuple[Dict, Dict]:
     """
     重新加载节点（用于开发时热更新）
-    
+
     参数:
         nodes_dir: 节点目录路径
-    
+
     返回:
         (categories, nodes) 元组
     """
@@ -52,12 +47,6 @@ def reload_nodes(nodes_dir: str) -> Tuple[Dict, Dict]:
 
 
 # ==================== 内部函数 ====================
-
-def _reset_registry():
-    """重置全局注册表"""
-    CATEGORIES.clear()
-    NODES.clear()
-
 
 def _validate_directory(nodes_dir: str) -> bool:
     """验证目录是否存在"""
@@ -70,33 +59,34 @@ def _validate_directory(nodes_dir: str) -> bool:
     return True
 
 
-def _load_directory(nodes_dir: str):
+def _load_directory(nodes_dir: str):  # 遍历文件夹
     """递归加载目录下的所有节点模块"""
     for root, _, files in os.walk(nodes_dir):
         for file in files:
-            if _is_node_file(file):
-                _load_module_safe(root, file)
+            if _is_node_file(file):  # 如果是 .py 文件
+                _load_module_safe(root, file)  # 动态导入模块
 
 
 def _is_node_file(filename: str) -> bool:
     """判断文件是否为有效的节点定义文件"""
     if not filename.endswith(".py"):
         return False
-    if filename.startswith("_"):
+    if filename.startswith("_") or filename == "__pycache__":  # 跳过 __pycache__
         return False
-    if filename == "__init__.py":
+    if filename == "__init__.py":  # 跳过 __init__.py
         return False
     return True
 
 
-def _load_module_safe(root: str, filename: str):
+def _load_module_safe(root: str, filename: str):  # 动态导入模块
     """安全地加载单个模块"""
     file_path = os.path.join(root, filename)
-    module_name = _generate_module_name(filename)
-    
+    module_name = _generate_module_name(filename)  # 根据文件路径计算模块名
+
     try:
-        _load_module(file_path, module_name)
-    except Exception as e:
+        _load_module(file_path, module_name)  # 使用 importlib 加载
+        # 模块中的 @category 和 @node 装饰器会自动注册
+    except Exception as e:  # 捕获异常并打印警告
         print(f"❌ 加载算子模块失败 {file_path}: {e}")
 
 
@@ -106,14 +96,14 @@ def _generate_module_name(filename: str) -> str:
     return f"nodes.{base_name}"
 
 
-def _load_module(file_path: str, module_name: str):
+def _load_module(file_path: str, module_name: str):  # 动态导入模块
     """动态加载模块"""
-    spec = importlib.util.spec_from_file_location(module_name, file_path)
-    
+    spec = importlib.util.spec_from_file_location(module_name, file_path)  # 根据文件路径计算模块名
+
     if spec is None or spec.loader is None:
         raise ImportError(f"无法创建模块规范: {file_path}")
-    
-    module = importlib.util.module_from_spec(spec)
+
+    module = importlib.util.module_from_spec(spec)  # 使用 importlib 加载
     sys.modules[module_name] = module
     spec.loader.exec_module(module)
 
@@ -129,19 +119,19 @@ def _unload_node_modules():
 
 def get_loaded_nodes() -> List[str]:
     """获取已加载的节点列表"""
-    return list(NODES.keys())
+    return list(registry._nodes.keys())
 
 
 def get_loaded_categories() -> List[str]:
     """获取已加载的分类列表"""
-    return list(CATEGORIES.keys())
+    return list(registry._categories.keys())
 
 
 def get_node_info(opcode: str) -> Optional[Dict]:
     """获取指定节点的信息"""
-    return NODES.get(opcode)
+    return registry._nodes.get(opcode)
 
 
 def get_category_info(cat_id: str) -> Optional[Dict]:
     """获取指定分类的信息"""
-    return CATEGORIES.get(cat_id)
+    return registry._categories.get(cat_id)

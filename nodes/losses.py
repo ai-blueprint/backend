@@ -17,8 +17,7 @@ from nodes import create_loss_node
 @category(
     id="loss",
     name="损失函数",
-    color="#FF6B6B",
-    icon="base64…"
+    color="#FF6B6B"
 )
 def loss_category():
     pass
@@ -27,9 +26,10 @@ def loss_category():
 # ==================== 节点定义 ====================
 
 @node(
-    opcode="cross_entropy",
+    id="cross_entropy",
     name="交叉熵损失 (CrossEntropy)",
-    ports={"in": ["input", "target"], "out": ["loss"]},
+    inputs=["input", "target"],
+    outputs=["loss"],
     params={}
 )
 def cross_entropy_loss():
@@ -41,9 +41,10 @@ def cross_entropy_loss():
 
 
 @node(
-    opcode="mse_loss",
+    id="mse_loss",
     name="均方误差损失 (MSE)",
-    ports={"in": ["input", "target"], "out": ["loss"]},
+    inputs=["input", "target"],
+    outputs=["loss"],
     params={"reduction": "mean"}
 )
 def mse_loss():
@@ -55,9 +56,10 @@ def mse_loss():
 
 
 @node(
-    opcode="l1_loss",
+    id="l1_loss",
     name="L1损失 (MAE)",
-    ports={"in": ["input", "target"], "out": ["loss"]},
+    inputs=["input", "target"],
+    outputs=["loss"],
     params={"reduction": "mean"}
 )
 def l1_loss():
@@ -69,9 +71,10 @@ def l1_loss():
 
 
 @node(
-    opcode="bce_loss",
+    id="bce_loss",
     name="二元交叉熵损失 (BCE)",
-    ports={"in": ["input", "target"], "out": ["loss"]},
+    inputs=["input", "target"],
+    outputs=["loss"],
     params={}
 )
 def bce_loss():
@@ -83,9 +86,10 @@ def bce_loss():
 
 
 @node(
-    opcode="bce_with_logits",
+    id="bce_with_logits",
     name="BCE With Logits",
-    ports={"in": ["input", "target"], "out": ["loss"]},
+    inputs=["input", "target"],
+    outputs=["loss"],
     params={}
 )
 def bce_with_logits_loss():
@@ -97,9 +101,10 @@ def bce_with_logits_loss():
 
 
 @node(
-    opcode="nll_loss",
+    id="nll_loss",
     name="负对数似然损失 (NLL)",
-    ports={"in": ["input", "target"], "out": ["loss"]},
+    inputs=["input", "target"],
+    outputs=["loss"],
     params={}
 )
 def nll_loss():
@@ -111,9 +116,10 @@ def nll_loss():
 
 
 @node(
-    opcode="smooth_l1_loss",
+    id="smooth_l1_loss",
     name="Smooth L1损失",
-    ports={"in": ["input", "target"], "out": ["loss"]},
+    inputs=["input", "target"],
+    outputs=["loss"],
     params={"beta": 1.0}
 )
 def smooth_l1_loss():

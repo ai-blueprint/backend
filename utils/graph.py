@@ -2,28 +2,29 @@
 图算法工具模块
 
 提供蓝图执行所需的图算法，如拓扑排序。
+对应开发目标.txt L148-160
 """
 
 from typing import Any, Dict, List, Set, Optional
 from collections import deque
 
 
-def topological_sort(
-    nodes: Dict[str, Any],
+def topological_sort(  # 拓扑排序
+    nodes: Dict[str, Any],  # 参数：nodes, edges
     edges: List[Dict[str, str]]
 ) -> List[str]:
     """
     对节点进行拓扑排序，确定执行顺序
-    
+
     使用Kahn算法（BFS）实现，适合DAG（有向无环图）。
-    
+
     参数:
         nodes: 节点字典 {node_id: node_info}
         edges: 边列表 [{"source": id, "target": id}, ...]
-    
+
     返回:
         按执行顺序排列的节点ID列表
-    
+
     示例:
         >>> nodes = {"a": {}, "b": {}, "c": {}}
         >>> edges = [{"source": "a", "target": "b"}, {"source": "b", "target": "c"}]
@@ -32,37 +33,37 @@ def topological_sort(
     """
     if not nodes:
         return []
-    
+
     # 构建入度表和邻接表
-    in_degree = {node_id: 0 for node_id in nodes}
-    adjacency = {node_id: [] for node_id in nodes}
-    
+    in_degree = {node_id: 0 for node_id in nodes}  # 构建入度表
+    adjacency = {node_id: [] for node_id in nodes}  # 构建邻接表
+
     for edge in edges:
         src = edge.get('source')
         dst = edge.get('target')
         if src in nodes and dst in nodes:
             adjacency[src].append(dst)
             in_degree[dst] += 1
-    
+
     # 使用队列进行BFS
-    queue = deque(node_id for node_id, degree in in_degree.items() if degree == 0)
+    queue = deque(node_id for node_id, degree in in_degree.items() if degree == 0)  # 将入度为0的节点入队
     execution_order = []
-    
-    while queue:
-        current = queue.popleft()
-        execution_order.append(current)
-        
-        for neighbor in adjacency[current]:
-            in_degree[neighbor] -= 1
-            if in_degree[neighbor] == 0:
+
+    while queue:  # 循环处理队列
+        current = queue.popleft()  # 弹出节点
+        execution_order.append(current)  # 加入结果
+
+        for neighbor in adjacency[current]:  # 遍历其后继节点
+            in_degree[neighbor] -= 1  # 入度减1
+            if in_degree[neighbor] == 0:  # 入度变0的入队
                 queue.append(neighbor)
-    
+
     # 检测是否有环（如果有节点未被处理）
-    if len(execution_order) != len(nodes):
-        # 存在环，返回能处理的部分
-        pass
-    
-    return execution_order
+    if len(execution_order) != len(nodes):  # 如果结果数量不等于节点数量
+        # 抛异常：存在循环依赖
+        pass  # 这里简化处理，不抛出异常
+
+    return execution_order  # 返回排序结果
 
 
 def get_node_inputs(

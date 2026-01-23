@@ -23,8 +23,7 @@ from nodes import (
 @category(
     id="layers",
     name="神经网络层",
-    color="#82CBFA",
-    icon="base64…"
+    color="#82CBFA"
 )
 def layers_category():
     pass
@@ -33,9 +32,10 @@ def layers_category():
 # ==================== 全连接层 ====================
 
 @node(
-    opcode="linear",
+    id="linear",
     name="全连接层 (Linear)",
-    ports={"in": ["x"], "out": ["out"]},
+    inputs=["x"],
+    outputs=["out"],
     params={"in_features": 128, "out_features": 64, "bias": True}
 )
 def linear_layer():
@@ -51,9 +51,10 @@ def linear_layer():
 # ==================== 卷积层 ====================
 
 @node(
-    opcode="conv2d",
+    id="conv2d",
     name="卷积层 (Conv2d)",
-    ports={"in": ["x"], "out": ["out"]},
+    inputs=["x"],
+    outputs=["out"],
     params={
         "in_channels": 3,
         "out_channels": 64,
@@ -80,9 +81,10 @@ def conv2d_layer():
 # ==================== 归一化层 ====================
 
 @node(
-    opcode="batchnorm2d",
+    id="batchnorm2d",
     name="批归一化 (BatchNorm2d)",
-    ports={"in": ["x"], "out": ["out"]},
+    inputs=["x"],
+    outputs=["out"],
     params={"num_features": 64}
 )
 def batchnorm2d_layer():
@@ -95,9 +97,10 @@ def batchnorm2d_layer():
 
 
 @node(
-    opcode="batchnorm1d",
+    id="batchnorm1d",
     name="批归一化 (BatchNorm1d)",
-    ports={"in": ["x"], "out": ["out"]},
+    inputs=["x"],
+    outputs=["out"],
     params={"num_features": 64}
 )
 def batchnorm1d_layer():
@@ -110,9 +113,10 @@ def batchnorm1d_layer():
 
 
 @node(
-    opcode="layernorm",
+    id="layernorm",
     name="层归一化 (LayerNorm)",
-    ports={"in": ["x"], "out": ["out"]},
+    inputs=["x"],
+    outputs=["out"],
     params={"normalized_shape": 64}
 )
 def layernorm_layer():
@@ -127,9 +131,10 @@ def layernorm_layer():
 # ==================== 正则化层 ====================
 
 @node(
-    opcode="dropout",
+    id="dropout",
     name="Dropout",
-    ports={"in": ["x"], "out": ["out"]},
+    inputs=["x"],
+    outputs=["out"],
     params={"p": 0.5}
 )
 def dropout_layer():
@@ -144,9 +149,10 @@ def dropout_layer():
 # ==================== 池化层 ====================
 
 @node(
-    opcode="maxpool2d",
+    id="maxpool2d",
     name="最大池化 (MaxPool2d)",
-    ports={"in": ["x"], "out": ["out"]},
+    inputs=["x"],
+    outputs=["out"],
     params={"kernel_size": 2, "stride": 2, "padding": 0}
 )
 def maxpool2d_layer():
@@ -163,9 +169,10 @@ def maxpool2d_layer():
 
 
 @node(
-    opcode="avgpool2d",
+    id="avgpool2d",
     name="平均池化 (AvgPool2d)",
-    ports={"in": ["x"], "out": ["out"]},
+    inputs=["x"],
+    outputs=["out"],
     params={"kernel_size": 2, "stride": 2, "padding": 0}
 )
 def avgpool2d_layer():
@@ -182,9 +189,10 @@ def avgpool2d_layer():
 
 
 @node(
-    opcode="adaptiveavgpool2d",
+    id="adaptiveavgpool2d",
     name="自适应平均池化",
-    ports={"in": ["x"], "out": ["out"]},
+    inputs=["x"],
+    outputs=["out"],
     params={"output_size": 1}
 )
 def adaptive_avgpool2d_layer():
@@ -207,9 +215,10 @@ def adaptive_avgpool2d_layer():
 # ==================== 形状变换层 ====================
 
 @node(
-    opcode="flatten",
+    id="flatten",
     name="展平 (Flatten)",
-    ports={"in": ["x"], "out": ["out"]},
+    inputs=["x"],
+    outputs=["out"],
     params={"start_dim": 1, "end_dim": -1}
 )
 def flatten_layer():
@@ -236,9 +245,10 @@ def flatten_layer():
 # ==================== 序列层 ====================
 
 @node(
-    opcode="lstm",
+    id="lstm",
     name="LSTM",
-    ports={"in": ["x"], "out": ["out", "hidden"]},
+    inputs=["x"],
+    outputs=["out", "hidden"],
     params={
         "input_size": 128,
         "hidden_size": 256,
@@ -272,9 +282,10 @@ def lstm_layer():
 
 
 @node(
-    opcode="gru",
+    id="gru",
     name="GRU",
-    ports={"in": ["x"], "out": ["out", "hidden"]},
+    inputs=["x"],
+    outputs=["out", "hidden"],
     params={
         "input_size": 128,
         "hidden_size": 256,
@@ -310,9 +321,10 @@ def gru_layer():
 # ==================== 嵌入层 ====================
 
 @node(
-    opcode="embedding",
+    id="embedding",
     name="嵌入层 (Embedding)",
-    ports={"in": ["x"], "out": ["out"]},
+    inputs=["x"],
+    outputs=["out"],
     params={"num_embeddings": 10000, "embedding_dim": 128}
 )
 def embedding_layer():

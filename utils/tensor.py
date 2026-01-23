@@ -3,6 +3,7 @@
 
 提供张量的提取、转换、形状处理等功能。
 所有函数都设计为容错的，能够处理各种边界情况。
+对应开发目标.txt L173-175
 """
 
 import torch
@@ -13,28 +14,28 @@ TensorLike = Union[torch.Tensor, List, None]
 ShapeLike = Union[List[int], tuple, None]
 
 
-def extract_single_input(
-    inputs: Any, 
+def extract_single_input(  # 智能提取张量
+    inputs: Any,
     port_name: str = "x",
     *,
     fallback_first: bool = True
-) -> Optional[torch.Tensor]:
+) -> Optional[torch.Tensor]:  # 从各种格式中提取出张量
     """
     从输入中智能提取单个张量
-    
+
     设计原则：
     1. 无论输入什么格式，都尽最大努力返回有效张量
     2. 优先按端口名匹配，其次取第一个值
     3. 绝不抛出异常，最坏情况返回 None
-    
+
     参数:
         inputs: 可以是 dict、Tensor、list 或 None
         port_name: 端口名称，默认为 "x"
         fallback_first: 当端口名不匹配时，是否返回第一个值
-    
+
     返回:
         torch.Tensor 或 None
-    
+
     示例:
         >>> extract_single_input({"x": tensor}, "x")  # 返回 tensor
         >>> extract_single_input(tensor, "x")          # 直接返回 tensor
@@ -43,23 +44,23 @@ def extract_single_input(
     # 空值快速路径
     if inputs is None:
         return None
-    
+
     # 已经是张量，直接返回
     if isinstance(inputs, torch.Tensor):
         return inputs
-    
+
     # 字典类型：按端口名或第一个值提取
-    if isinstance(inputs, dict):
+    if isinstance(inputs, dict):  # 处理嵌套字典和列表
         if port_name in inputs:
             return _to_tensor(inputs[port_name])
         if fallback_first and len(inputs) > 0:
             return _to_tensor(next(iter(inputs.values())))
         return None
-    
+
     # 列表类型：尝试转换为张量
-    if isinstance(inputs, (list, tuple)):
+    if isinstance(inputs, (list, tuple)):  # 处理嵌套字典和列表
         return _to_tensor(inputs)
-    
+
     # 其他类型：尝试转换
     return _to_tensor(inputs)
 

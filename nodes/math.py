@@ -16,8 +16,7 @@ from nodes import create_binary_op_node
 @category(
     id="math",
     name="数学运算",
-    color="#FFB6C1",
-    icon="base64…"
+    color="#FFB6C1"
 )
 def math_category():
     pass
@@ -26,9 +25,10 @@ def math_category():
 # ==================== 节点定义 ====================
 
 @node(
-    opcode="add",
+    id="add",
     name="加法 (+)",
-    ports={"in": ["x", "y"], "out": ["result"]},
+    inputs=["x", "y"],
+    outputs=["result"],
     params={}
 )
 def add_node():
@@ -37,9 +37,10 @@ def add_node():
 
 
 @node(
-    opcode="matmul",
+    id="matmul",
     name="矩阵乘法 (@)",
-    ports={"in": ["x", "y"], "out": ["result"]},
+    inputs=["x", "y"],
+    outputs=["result"],
     params={}
 )
 def matmul_node():
@@ -59,9 +60,10 @@ def matmul_node():
 
 
 @node(
-    opcode="sum",
+    id="sum",
     name="求和 (Σ)",
-    ports={"in": ["x"], "out": ["result"]},
+    inputs=["x"],
+    outputs=["result"],
     params={"dim": None, "keepdim": False}
 )
 def sum_node():
@@ -90,9 +92,10 @@ def sum_node():
 
 
 @node(
-    opcode="mul",
+    id="mul",
     name="乘法 (*)",
-    ports={"in": ["x", "y"], "out": ["result"]},
+    inputs=["x", "y"],
+    outputs=["result"],
     params={}
 )
 def mul_node():
@@ -101,9 +104,10 @@ def mul_node():
 
 
 @node(
-    opcode="sub",
+    id="sub",
     name="减法 (-)",
-    ports={"in": ["x", "y"], "out": ["result"]},
+    inputs=["x", "y"],
+    outputs=["result"],
     params={}
 )
 def sub_node():
@@ -112,9 +116,10 @@ def sub_node():
 
 
 @node(
-    opcode="div",
+    id="div",
     name="除法 (/)",
-    ports={"in": ["x", "y"], "out": ["result"]},
+    inputs=["x", "y"],
+    outputs=["result"],
     params={}
 )
 def div_node():
@@ -123,9 +128,10 @@ def div_node():
 
 
 @node(
-    opcode="mean",
+    id="mean",
     name="均值 (μ)",
-    ports={"in": ["x"], "out": ["result"]},
+    inputs=["x"],
+    outputs=["result"],
     params={"dim": None, "keepdim": False}
 )
 def mean_node():

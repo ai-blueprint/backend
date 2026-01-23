@@ -16,8 +16,7 @@ from nodes import create_activation_node, create_parameterized_activation_node
 @category(
     id="activations",
     name="激活函数",
-    color="#FFB6C1",
-    icon="base64…"
+    color="#FFB6C1"
 )
 def activations_category():
     pass
@@ -26,9 +25,10 @@ def activations_category():
 # ==================== 节点定义 ====================
 
 @node(
-    opcode="relu",
+    id="relu",
     name="ReLU 激活",
-    ports={"in": ["x"], "out": ["result"]},
+    inputs=["x"],
+    outputs=["result"],
     params={}
 )
 def relu_node():
@@ -37,9 +37,10 @@ def relu_node():
 
 
 @node(
-    opcode="sigmoid",
+    id="sigmoid",
     name="Sigmoid 激活",
-    ports={"in": ["x"], "out": ["result"]},
+    inputs=["x"],
+    outputs=["result"],
     params={}
 )
 def sigmoid_node():
@@ -48,9 +49,10 @@ def sigmoid_node():
 
 
 @node(
-    opcode="tanh",
+    id="tanh",
     name="Tanh 激活",
-    ports={"in": ["x"], "out": ["result"]},
+    inputs=["x"],
+    outputs=["result"],
     params={}
 )
 def tanh_node():
@@ -59,9 +61,10 @@ def tanh_node():
 
 
 @node(
-    opcode="gelu",
+    id="gelu",
     name="GELU 激活",
-    ports={"in": ["x"], "out": ["result"]},
+    inputs=["x"],
+    outputs=["result"],
     params={}
 )
 def gelu_node():
@@ -70,9 +73,10 @@ def gelu_node():
 
 
 @node(
-    opcode="silu",
+    id="silu",
     name="SiLU/Swish 激活",
-    ports={"in": ["x"], "out": ["result"]},
+    inputs=["x"],
+    outputs=["result"],
     params={}
 )
 def silu_node():
@@ -81,9 +85,10 @@ def silu_node():
 
 
 @node(
-    opcode="leaky_relu",
+    id="leaky_relu",
     name="LeakyReLU 激活",
-    ports={"in": ["x"], "out": ["result"]},
+    inputs=["x"],
+    outputs=["result"],
     params={"negative_slope": 0.01}
 )
 def leaky_relu_node():
@@ -96,9 +101,10 @@ def leaky_relu_node():
 
 
 @node(
-    opcode="softmax",
+    id="softmax",
     name="Softmax 激活",
-    ports={"in": ["x"], "out": ["result"]},
+    inputs=["x"],
+    outputs=["result"],
     params={"dim": -1}
 )
 def softmax_node():

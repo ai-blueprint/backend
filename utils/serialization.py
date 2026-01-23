@@ -3,6 +3,7 @@
 
 提供张量和数据结构的序列化/反序列化功能。
 设计目标：无论输入什么格式，都能安全地序列化为JSON兼容格式。
+对应开发目标.txt L161-172
 """
 
 import torch
@@ -12,77 +13,77 @@ from typing import Any, Dict, List, Optional, Union
 JSONValue = Union[Dict, List, str, int, float, bool, None]
 
 
-def serialize_tensor(tensor: Any) -> Optional[Dict[str, Any]]:
+def serialize_tensor(tensor: Any) -> Optional[Dict[str, Any]]:  # 张量转字典
     """
     将张量序列化为JSON兼容的字典格式
-    
+
     参数:
         tensor: torch.Tensor 或其他类型
-    
+
     返回:
         {"type": "tensor", "shape": [...], "data": [...]} 或 None
-    
+
     示例:
         >>> serialize_tensor(torch.tensor([1, 2, 3]))
         {"type": "tensor", "shape": [3], "data": [1, 2, 3]}
     """
     if tensor is None:
         return None
-    
+
     if not isinstance(tensor, torch.Tensor):
         return None  # 非张量返回 None，让调用者处理
-    
+
     try:
-        return {
+        return {  # 返回{shape, dtype, data}
             "type": "tensor",
-            "shape": list(tensor.shape),
-            "data": tensor.detach().cpu().tolist(),
-            "dtype": str(tensor.dtype).split('.')[-1],  # 如 "float32"
+            "shape": list(tensor.shape),  # 返回shape
+            "data": tensor.detach().cpu().tolist(),  # 返回data
+            "dtype": str(tensor.dtype).split('.')[-1],  # 返回dtype
         }
     except (RuntimeError, TypeError):
         return None
 
 
-def deserialize_tensor(
-    data: Any, 
+def deserialize_tensor(  # 字典转张量
+    data: Any,
     dtype: torch.dtype = torch.float32,
     *,
     device: Optional[str] = None
 ) -> Optional[torch.Tensor]:
     """
     将JSON格式反序列化为张量
-    
+
     支持多种输入格式：
     1. {"type": "tensor", "data": [...]} - 标准序列化格式
     2. [...] - 纯列表格式
     3. torch.Tensor - 直接返回
-    
+
     参数:
         data: dict, list 或 Tensor
         dtype: 目标数据类型
         device: 目标设备
-    
+
     返回:
         torch.Tensor 或 None
     """
     if data is None:
         return None
-    
+
     # 已经是张量
     if isinstance(data, torch.Tensor):
         return _apply_dtype_device(data, dtype, device)
-    
+
     # 标准序列化格式
-    if isinstance(data, dict) and data.get("type") == "tensor":
+    if isinstance(data, dict) and data.get("type") == "tensor":  # 参数：dict
         tensor_data = data.get("data")
         if tensor_data is None:
             return None
         try:
-            tensor = torch.tensor(tensor_data, dtype=dtype)
+            tensor = torch.tensor(tensor_data, dtype=dtype)  # 根据shape, dtype, data重建张量
             return _apply_dtype_device(tensor, dtype, device)
         except (ValueError, TypeError, RuntimeError):
             return None
-    
+
     # 纯列表/元组格式
     if isinstance(data, (list, tuple)):
         try:
@@ -90,7 +91,7 @@ def deserialize_tensor(
             return _apply_dtype_device(tensor, dtype, device)
         except (ValueError, TypeError, RuntimeError):
             return None
-    
+
     # 标量数值
     if isinstance(data, (int, float)):
         try:
@@ -98,56 +99,56 @@ def deserialize_tensor(
             return _apply_dtype_device(tensor, dtype, device)
         except (ValueError, TypeError):
             return None
-    
+
     return None
 
 
-def serialize_value(value: Any) -> JSONValue:
+def serialize_value(value: Any) -> JSONValue:  # 递归转换结果
     """
     将单个值转换为JSON兼容格式
-    
+
     处理规则：
     1. torch.Tensor -> {"type": "tensor", ...}
     2. dict -> 递归序列化
     3. list -> 递归序列化
     4. 基本类型 -> 直接返回
-    
+
     参数:
         value: 任意值
-    
+
     返回:
         JSON兼容的值
     """
     # None
     if value is None:
         return None
-    
+
     # 张量
-    if isinstance(value, torch.Tensor):
-        return serialize_tensor(value)
-    
+    if isinstance(value, torch.Tensor):  # 如果是张量
+        return serialize_tensor(value)  # 转字典
+
     # 字典：递归处理
-    if isinstance(value, dict):
-        return {k: serialize_value(v) for k, v in value.items()}
-    
+    if isinstance(value, dict):  # 如果是字典
+        return {k: serialize_value(v) for k, v in value.items()}  # 递归处理每个值
+
     # 列表/元组：递归处理
-    if isinstance(value, (list, tuple)):
+    if isinstance(value, (list, tuple)):  # 如果是列表
         # 检查是否是嵌套的数值列表（可能是张量数据）
         if _is_numeric_nested_list(value):
             return list(value)  # 保持原样
-        return [serialize_value(item) for item in value]
-    
+        return [serialize_value(item) for item in value]  # 递归处理每个元素
+
     # numpy数组
     if hasattr(value, 'tolist'):
         return value.tolist()
-    
+
     # 基本类型
     if isinstance(value, (str, int, float, bool)):
-        return value
-    
+        return value  # 否则原样返回
+
     # 其他类型：尝试转换为字符串
     try:
-        return str(value)
+        return str(value)  # 否则原样返回
     except Exception:
         return None
 
