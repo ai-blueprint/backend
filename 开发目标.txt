@@ -1,191 +1,165 @@
-后端逻辑
-	main.py
+后端
+	大体逻辑
 		启动服务
-			调用 server.start(host: str = "localhost", port: int = 8765)
-	server.py
-		全局变量
-			clients：已连接的前端列表
-		启动服务
-			打印启动信息
-			创建 WebSocket 服务
-			保持运行
-		处理连接
-			将前端加入 clients
-			循环接收消息
-				收到消息，调用 handle_message
-			连接断开，从 clients 移除
-		发送响应
-			包装成 {type, id, data}
-			转 JSON 发出去
-		发送错误
-			包装成 {type, id, error}
-			发出去
-		处理消息
-			解析 JSON
-			提取 type 和 id
-			如果 type 是 get_nodes
-				调用 registry.get_all_for_frontend()
-				发送响应
-			如果 type 是 run_blueprint
-				提取 blueprint 和 inputs
-				调用 engine.run()，传入回调函数
-					回调函数：每个节点执行完就发送进度
-				发送完成消息
-	loader.py
-		加载所有节点
-			获取 nodes 文件夹路径
-			遍历文件夹
-				跳过 __pycache__
-				跳过 __init__.py
-				如果是 .py 文件
-					动态导入模块
-					模块中的 @category 和 @node 装饰器会自动注册
-			返回加载数量
-		动态导入模块
-			根据文件路径计算模块名
-			使用 importlib 加载
-			捕获异常并打印警告
-	registry.py
-		全局变量
-			_nodes：节点定义字典
-			_categories：分类定义字典
-		注册分类
-			存入 _categories
-		注册节点
-			存入 _nodes
-		获取节点定义
-			从 _nodes 查询
-		获取所有节点
-			返回 _nodes 的副本
-		获取分类下的节点
-			遍历 _nodes，筛选出指定分类的
-		获取前端格式数据
-			遍历 _categories，构建分类列表
-			遍历 _nodes，构建节点列表
-				转换 inputs 格式
-				转换 outputs 格式
-				转换 params 格式
-			返回 {categories, nodes}
-	context.py
-		执行上下文类
+		当收到前端发来的请求
+			请求节点注册表
+				扫描并加载所有节点生成注册表
+				发送到前端
+			请求运行蓝图
+				运行排序
+				根据类型和params
+					形状推断
+					算子层构建
+				按照顺序执行节点
+					执行完一个节点，返回
+						节点
+						结果
+					执行出错了
+						向前端发送
+							节点id
+							错误
+						结束引擎运行
+				结束引擎运行
+	文件与具体逻辑
+		main.py
+			启动服务
+				调用 server.start(host: str = "localhost", port: int = 8765)
+		server.py
+			全局变量
+				clients：已连接的前端列表
+			启动服务
+				打印启动信息
+				创建 WebSocket 服务
+				保持运行
+			处理连接
+				将前端加入 clients
+				循环接收消息
+					收到消息，调用 handleMessage
+				连接断开，从 clients 移除
+			发送消息
+				包装成 {type, id, data}
+				转 JSON 发出去
+			发送错误
+				包装成 {type, id, error}
+				发出去
+			处理消息
+				解析 JSON
+				提取 type 和 id
+				如果 type 是 getNodes
+					调用 registry.getAllForFrontend()
+					发送响应
+				如果 type 是 runBlueprint
+					提取 blueprint 和 inputs
+					调用 engine.run()
+					发送完成消息
+		loader.py
+			动态导入模块
+				根据文件路径计算模块名
+				使用 importlib 加载
+			加载所有
+				获取 nodes 文件夹路径
+				遍历文件夹
+					跳过 __pycache__
+					跳过 __init__.py
+					如果是 .py 文件
+						动态导入模块(模块中的 @category 和 @node 装饰器会自动注册)
+		registry.py
+			全局变量
+				nodes：节点定义字典
+				categories：分类定义字典
+			注册分类
+				存入 categories
+			注册节点
+				存入 nodes
+			获取前端格式数据
+				遍历 categories，构建分类列表
+				获取 nodes，把里面每一个的 func 去掉
+				返回 {categories, nodes}
+		context.py
+			执行上下文类
+				初始化(blueprintData)
+					shapes：存每个节点的形状 {node_id: {port: shapeValue}}
+					layers：存已构建的层 {nodeId: layer}
+					results：存每个节点的输出 {nodeId: {port: outputValue}}
+				获取节点输入(nodeId)
+					遍历所有 edges
+						如果 edge.target 是当前节点
+							从 results 里取 source 节点的对应端口值
+					返回收集到的输入字典
+		engine.py
 			初始化
-				results：存每个节点的输出 {node_id: {port: value}}
-				layers：存已构建的层 {node_id: layer_instance}
-				inputs：用户传入的初始数据
-			获取节点输入
-				参数：node_id, edges
-				遍历所有 edges
-					如果 edge.target 是当前节点
-						从 results 里取 source 节点的对应端口值
-				返回收集到的输入字典
-			存储结果
-				results[node_id] = output_dict
-			获取结果
-				返回 results[node_id]
-			存储层
-				layers[node_id] = layer
-			获取层
-				返回 layers.get(node_id)
-			获取初始输入
-				返回 inputs.get(node_id)
-	engine.py
-		运行蓝图
-			参数：blueprint, inputs, on_progress
-			调用 loader.load_all() 确保节点已加载
-			创建执行上下文 context
-			解析 blueprint 得到 nodes 和 edges
-			调用 topo_sort 得到执行顺序
-			获取节点定义
-			执行形状推断
-			构建或获取层实例
-				如果
-					如果 context 里有缓存，直接用
-				否则
-					获取节点参数 params
-					调用定义里的 build 函数
-					存入 context
-			遍历执行
-				尝试执行节点
-					执行单个节点
-					存储结果
-					如果有回调，发送进度
-				捕获异常
-					返回 {node_id, error}
-					终止执行，跳出遍历
-			返回完成信息
-		执行单个节点
-			参数：node_id, node_data, context, edges
-			获取节点类型
-			从 registry 获取节点定义
-			如果找不到定义，抛异常
-			如果是输入节点且无输入
-				使用 context.get_initial_input(node_id)
-				否则
-					收集输入：context.get_inputs(node_id, edges)
-			执行计算
-				调用定义里的 compute 函数
-				传入 layer, inputs, params
-			确保输出是字典格式
-			返回输出
-		确保字典输出
-			如果已经是字典，直接返回
-			如果是单值，包装成 {output: value}
-			如果是元组，按 outputs 端口名包装
-	decorators.py
-		@category 装饰器
-			参数：id, name, color
-			调用 registry.register_category
-		@node 装饰器
-			参数：id, name, category, inputs, outputs, params
-			返回装饰器函数
-				接收 factory 函数
-				调用 registry.register_node
-				返回 factory
-		基础节点类
-			infer_shape 方法：子类重写
-			build 方法：子类重写
-			compute 方法：子类重写
-	utils/graph.py
-		拓扑排序
-			参数：nodes, edges
-			构建入度表
-			构建邻接表
-			将入度为0的节点入队
-			循环处理队列
-				弹出节点，加入结果
-				遍历其后继节点，入度减1
-				入度变0的入队
-			如果结果数量不等于节点数量
-				抛异常：存在循环依赖
-			返回排序结果
-	utils/tensor.py
-		张量转字典
-			参数：tensor
-			返回 {shape, dtype, data}
-		字典转张量
-			参数：dict
-			根据 shape, dtype, data 重建张量
-		递归转换结果
-			如果是张量，转字典
-			如果是字典，递归处理每个值
-			如果是列表，递归处理每个元素
-			否则原样返回
-		智能提取张量
-			从各种格式中提取出张量
-			处理嵌套字典和列表
-	nodes/example.py
-		从装饰器导入category, node
-		@category
-			id="example_category"
-			label="示例节点定义"
-			color="#FFB6C1"
-			icon="base64格式字符串"
-		@node
-			opcode="example_node"
-			label="示例节点"
-			ports={"in": ["x", "y"], "out": ["result"]}
-			params={"数字参数": 1, "布尔参数": False}
-			infer_shape 方法
-			build 方法
-			compute 方法
-			返回infer_shape、build、compute这三个func
+				调用 loader.loadAll() 加载所有节点
+				创建执行上下文 context
+			运行蓝图(blueprint, sendMessage, sendError)
+				解析 blueprint 得到 nodes 和 edges
+				调用 topoSort 得到执行顺序
+				获取节点定义
+				执行形状推断
+					遍历节点
+						调用节点定义里的 infer 函数
+						存入 context.shapes
+				构建层实例
+					遍历节点
+						调用节点定义里的 build 函数
+						存入 context.layers
+				逐节点运行
+					遍历节点
+						尝试执行节点
+							调用节点定义里的 compute 函数
+							存入 context.results
+							sendMessage
+						运行出错
+							sendError
+							终止执行，跳出遍历
+				打印完成信息
+		decorators.py
+			@category 装饰器
+				参数：id, name, color, icon
+				调用 registry.register_category
+			@node 装饰器
+				参数：opcode, name, category, inputs, outputs, params
+				返回装饰器函数
+					接收和返回 infer, build, compute 三函数
+		sort.py
+			拓扑排序(nodes, edges)
+				构建入度表
+				构建邻接表
+				将入度为0的节点入队
+				循环处理队列
+					弹出节点，加入结果
+					遍历其后继节点，入度减1
+					入度变0的入队
+				如果结果数量不等于节点数量
+					抛异常：存在循环依赖
+				返回排序结果[数组格式]
+		nodes/example.py
+			从装饰器导入category, node
+			@category
+				id="example_category"
+				label="示例节点定义"
+				color="#FFB6C1"
+				icon="base64格式字符串"
+			@node
+				opcode="example_node"
+				label="示例节点"
+				ports={"in": ["x", "y"], "out": ["result"]}
+				params={"数字参数": 1, "布尔参数": False}
+				func
+					infer 方法
+					build 方法
+					compute 方法
+					返回infer_shape、build、compute这三个func
+	开发要求
+		遵循Occam’s Razor原则，如无必要，勿增实体。
+			不要标注任何类型
+			除了该架构中的方法，不要新增任何额外的函数
+		遵循Postel’s Law原则，接受多变，输出保守。
+			自动适配传入的参数
+		面向理解编程
+			代码逻辑要符合人类直觉
+			每行代码都需要尾随注释，大白话详细解读每一行代码
+			每个函数方法的开头都需要标明该方法的具体用法和各种调用示例
+			变量名和函数名等要简洁易于理解，并且符合项目语境，全部使用驼峰命名法
+		代码易于阅读
+			采用积木式的行状写法
+			减少嵌套与缩进
