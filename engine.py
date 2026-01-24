@@ -20,7 +20,7 @@ from utils.safe import safe_call, safe_get
 def run(  # 运行蓝图
     blueprint: Dict[str, Any],  # 参数：blueprint
     inputs: Dict[str, Any],  # 参数：inputs
-    on_progress: Optional[Callable] = None  # 参数：on_progress
+    on_progress: Optional[Callable] = None,  # 参数：on_progress
 ) -> Dict[str, Any]:
     """
     运行蓝图
@@ -37,11 +37,11 @@ def run(  # 运行蓝图
 
     context = ExecutionContext(inputs)  # 创建执行上下文 context
 
-    nodes = blueprint.get('nodes', [])  # 解析 blueprint 得到 nodes
-    edges = blueprint.get('edges', [])  # 解析 blueprint 得到 edges
+    nodes = blueprint.get("nodes", [])  # 解析 blueprint 得到 nodes
+    edges = blueprint.get("edges", [])  # 解析 blueprint 得到 edges
 
     # 转换nodes列表为字典，便于查询
-    nodes_data = {node['id']: node for node in nodes if 'id' in node}
+    nodes_data = {node["id"]: node for node in nodes if "id" in node}
 
     execution_order = topological_sort(nodes_data, edges)  # 调用 topo_sort 得到执行顺序
 
@@ -58,7 +58,7 @@ def run(  # 运行蓝图
         if not node_def:
             continue
 
-        func_factory = node_def.get('func')
+        func_factory = node_def.get("func")
         if not func_factory:
             continue
 
@@ -74,7 +74,9 @@ def run(  # 运行蓝图
                 continue
             else:  # 否则
                 # 获取节点参数 params
-                layer = _invoke_build(build, input_shapes, params)  # 调用定义里的 build 函数
+                layer = _invoke_build(
+                    build, input_shapes, params
+                )  # 调用定义里的 build 函数
                 context.store_layer(node_id, layer)  # 存入 context
         except Exception:
             pass  # 忽略构建错误，在执行时处理
@@ -103,7 +105,7 @@ def execute_node(  # 执行单个节点
     node_id: str,  # 参数：node_id
     node_data: Dict[str, Any],  # 参数：node_data
     context: ExecutionContext,  # 参数：context
-    edges: List[Dict[str, Any]]  # 参数：edges
+    edges: List[Dict[str, Any]],  # 参数：edges
 ) -> Dict[str, Any]:
     """
     执行单个节点
@@ -125,18 +127,22 @@ def execute_node(  # 执行单个节点
     if not node_def:  # 如果找不到定义，抛异常
         raise Exception(f"未找到节点定义: {node_type}")
 
-    func_factory = node_def.get('func')
+    func_factory = node_def.get("func")
     if not func_factory:
         raise Exception(f"节点 {node_type} 缺少func定义")
 
     infer, build, compute = func_factory()
 
     # 收集输入
-    is_input_node = node_type == 'input'
-    inputs = context.get_inputs(node_id, edges)  # 收集输入：context.get_inputs(node_id, edges)
+    is_input_node = node_type == "input"
+    inputs = context.get_inputs(
+        node_id, edges
+    )  # 收集输入：context.get_inputs(node_id, edges)
 
     if is_input_node and not inputs:  # 如果是输入节点且无输入
-        inputs = context.get_initial_input(node_id)  # 使用 context.get_initial_input(node_id)
+        inputs = context.get_initial_input(
+            node_id
+        )  # 使用 context.get_initial_input(node_id)
         # 确保inputs是字典格式
         if not isinstance(inputs, dict):
             inputs = {"out": inputs}
@@ -144,7 +150,9 @@ def execute_node(  # 执行单个节点
 
     # 执行计算
     layer = context.get_layer(node_id)  # 调用定义里的 compute 函数
-    output = _run_compute(compute, layer, inputs, node_type, node_def)  # 传入 layer, inputs, params
+    output = _run_compute(
+        compute, layer, inputs, node_type, node_def
+    )  # 传入 layer, inputs, params
 
     # 确保输出是字典格式
     output = ensure_dict_output(output, node_type, node_def)
@@ -153,9 +161,7 @@ def execute_node(  # 执行单个节点
 
 
 def ensure_dict_output(  # 确保字典输出
-    output: Any,
-    node_type: str,
-    node_def: Dict[str, Any]
+    output: Any, node_type: str, node_def: Dict[str, Any]
 ) -> Dict[str, Any]:
     """
     确保输出为字典格式
@@ -172,7 +178,7 @@ def ensure_dict_output(  # 确保字典输出
         return output
 
     # 如果是单值，包装成 {output: value}
-    out_ports = safe_get(node_def, 'ports', 'out', default=['out'])
+    out_ports = safe_get(node_def, "ports", "out", default=["out"])
     if not isinstance(output, tuple):
         return {out_ports[0]: output}
 
@@ -186,9 +192,10 @@ def ensure_dict_output(  # 确保字典输出
 
 # ==================== 辅助函数（支持主流程） ====================
 
+
 def _get_node_type(node_info: Dict[str, Any]) -> str:
     """从节点信息中提取类型（opcode）"""
-    return safe_get(node_info, 'data', 'nodeKey') or node_info.get('type', '')
+    return safe_get(node_info, "data", "nodeKey") or node_info.get("type", "")
 
 
 def _extract_params(node_info: Dict[str, Any]) -> Dict[str, Any]:
@@ -199,14 +206,14 @@ def _extract_params(node_info: Dict[str, Any]) -> Dict[str, Any]:
     1. 新格式: data.params = {"key": {"type": "...", "default": value}}
     2. 旧格式: params = {"key": value}
     """
-    raw_params = safe_get(node_info, 'data', 'params', default={})
+    raw_params = safe_get(node_info, "data", "params", default={})
 
     if not raw_params:
-        return node_info.get('params', {})
+        return node_info.get("params", {})
 
     # 检测是否为新格式
     first_value = next(iter(raw_params.values()), None)
-    if isinstance(first_value, dict) and 'default' in first_value:
+    if isinstance(first_value, dict) and "default" in first_value:
         return _convert_new_format_params(raw_params)
 
     return raw_params
@@ -216,8 +223,8 @@ def _convert_new_format_params(raw_params: Dict[str, Dict]) -> Dict[str, Any]:
     """将新格式参数转换为简单键值对"""
     result = {}
     for key, param_obj in raw_params.items():
-        default_val = param_obj.get('default')
-        param_type = param_obj.get('type', 'string')
+        default_val = param_obj.get("default")
+        param_type = param_obj.get("type", "string")
         result[key] = coerce_type(default_val, param_type, default=default_val)
     return result
 
@@ -226,7 +233,7 @@ def _compute_input_shapes(inputs: Dict[str, Any]) -> Dict[str, List[int]]:
     """计算输入的形状信息"""
     shapes = {}
     for key, value in inputs.items():
-        if hasattr(value, 'shape'):
+        if hasattr(value, "shape"):
             shapes[key] = list(value.shape)
         elif isinstance(value, (list, tuple)):
             shapes[key] = _infer_list_shape(value)
@@ -248,9 +255,7 @@ def _infer_list_shape(lst: Any) -> List[int]:
 
 
 def _invoke_build(
-    build_func: Callable,
-    input_shapes: Dict[str, List[int]],
-    params: Dict[str, Any]
+    build_func: Callable, input_shapes: Dict[str, List[int]], params: Dict[str, Any]
 ) -> Any:
     """根据build函数签名调用构建"""
     sig = inspect.signature(build_func)
@@ -267,7 +272,7 @@ def _run_compute(
     layer: Any,
     inputs: Dict[str, Any],
     node_type: str,
-    node_def: Dict[str, Any]
+    node_def: Dict[str, Any],
 ) -> Any:
     """
     执行节点计算
@@ -278,7 +283,7 @@ def _run_compute(
     3. 单输入 + 其他 -> compute(x, layer)
     4. 多输入 -> compute(inputs, layer)
     """
-    input_ports = safe_get(node_def, 'ports', 'in', default=[])
+    input_ports = safe_get(node_def, "ports", "in", default=[])
 
     # 无输入节点
     if len(input_ports) == 0:

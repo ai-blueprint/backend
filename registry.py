@@ -20,6 +20,7 @@ _categories: Dict[str, Dict[str, Any]] = {}  # _categories：分类定义字典
 
 # ==================== 注册函数 ====================
 
+
 def register_category(id: str, name: str, color: str = "#888888"):  # 注册分类
     """
     注册分类定义
@@ -29,11 +30,7 @@ def register_category(id: str, name: str, color: str = "#888888"):  # 注册分�
         name: 分类显示名称
         color: 分类主题颜色
     """
-    _categories[id] = {  # 存入 _categories
-        "id": id,
-        "name": name,
-        "color": color
-    }
+    _categories[id] = {"id": id, "name": name, "color": color}  # 存入 _categories
 
 
 def register_node(  # 注册节点
@@ -43,7 +40,7 @@ def register_node(  # 注册节点
     inputs: List[str],
     outputs: List[str],
     params: Dict[str, Any],
-    func: Any
+    func: Any,
 ):
     """
     注册节点定义
@@ -64,11 +61,12 @@ def register_node(  # 注册节点
         "inputs": inputs,
         "outputs": outputs,
         "params": params,
-        "func": func
+        "func": func,
     }
 
 
 # ==================== 查询函数 ====================
+
 
 def get_function(opcode: str) -> Optional[Dict[str, Any]]:  # 获取节点定义
     """
@@ -117,8 +115,7 @@ def get_nodes_by_category(cat_id: str) -> List[str]:  # 获取分类下的节点
         节点ID列表
     """
     return [  # 遍历 _nodes，筛选出指定分类的
-        node_id for node_id, node in _nodes.items()
-        if node.get('category') == cat_id
+        node_id for node_id, node in _nodes.items() if node.get("category") == cat_id
     ]
 
 
@@ -134,6 +131,7 @@ def list_all_nodes() -> List[str]:
 
 # ==================== 前端数据导出 ====================
 
+
 def get_all_for_frontend() -> Dict[str, Any]:  # 获取前端格式数据
     """
     获取前端格式的数据
@@ -144,25 +142,25 @@ def get_all_for_frontend() -> Dict[str, Any]:  # 获取前端格式数据
     frontend_categories = {}  # 遍历 _categories，构建分类列表
     for cat_id, cat_info in _categories.items():
         frontend_categories[cat_id] = {
-            "label": cat_info.get('name', cat_id),
-            "color": cat_info.get('color', '#888888'),
-            "nodes": get_nodes_by_category(cat_id)
+            "label": cat_info.get("name", cat_id),
+            "color": cat_info.get("color", "#888888"),
+            "nodes": get_nodes_by_category(cat_id),
         }
 
     frontend_nodes = {}  # 遍历 _nodes，构建节点列表
     for node_id, node_info in _nodes.items():
         frontend_nodes[node_id] = {
-            "label": node_info.get('name', node_id),
+            "label": node_info.get("name", node_id),
             "opcode": node_id,
-            "category": node_info.get('category', ''),
-            "inputs": _format_ports(node_info.get('inputs', [])),  # 转换 inputs 格式
-            "outputs": _format_ports(node_info.get('outputs', [])),  # 转换 outputs 格式
-            "params": _convert_params(node_info.get('params', {}))  # 转换 params 格式
+            "category": node_info.get("category", ""),
+            "inputs": _format_ports(node_info.get("inputs", [])),  # 转换 inputs 格式
+            "outputs": _format_ports(node_info.get("outputs", [])),  # 转换 outputs 格式
+            "params": _convert_params(node_info.get("params", {})),  # 转换 params 格式
         }
 
     return {  # 返回 {categories, nodes}
         "categories": frontend_categories,
-        "nodes": frontend_nodes
+        "nodes": frontend_nodes,
     }
 
 
@@ -175,13 +173,14 @@ def export_to_frontend(output_file: str = "node_registry.json"):
     """
     frontend_data = get_all_for_frontend()
 
-    with open(output_file, 'w', encoding='utf-8') as f:
+    with open(output_file, "w", encoding="utf-8") as f:
         json.dump(frontend_data, f, ensure_ascii=False, indent=2)
 
     print(f"✅ 前端注册表已生成：{output_file}")
 
 
 # ==================== 辅助函数 ====================
+
 
 def _format_ports(port_list: List[str]) -> List[Dict[str, str]]:
     """格式化端口列表"""
@@ -196,7 +195,7 @@ def _convert_params(params_dict: Dict) -> Dict[str, Dict]:
         result[key] = {
             "label": key,
             "type": param_type,
-            "default": _format_default_value(value, param_type)
+            "default": _format_default_value(value, param_type),
         }
     return result
 
@@ -235,7 +234,7 @@ def reset_registry():
 if __name__ == "__main__":
     from loader import load_all_nodes
 
-    nodes_dir = os.path.join(os.path.dirname(__file__), 'nodes')
+    nodes_dir = os.path.join(os.path.dirname(__file__), "nodes")
     load_all_nodes(nodes_dir)
 
     print(f"已加载 {len(_nodes)} 个节点，{len(_categories)} 个分类")

@@ -25,6 +25,7 @@ clients: Set = set()  # clients：已连接的前端列表
 
 # ==================== 启动服务 ====================
 
+
 async def start(host: str = "localhost", port: int = 8765):  # 启动服务
     """
     启动WebSocket服务器
@@ -41,6 +42,7 @@ async def start(host: str = "localhost", port: int = 8765):  # 启动服务
 
 
 # ==================== 处理连接 ====================
+
 
 async def handle_connection(websocket):  # 处理连接
     """
@@ -64,12 +66,8 @@ async def handle_connection(websocket):  # 处理连接
 
 # ==================== 发送响应 ====================
 
-async def send_response(  # 发送响应
-    websocket,
-    msg_type: str,
-    msg_id: str,
-    data: Any
-):
+
+async def send_response(websocket, msg_type: str, msg_id: str, data: Any):  # 发送响应
     """
     发送响应消息
 
@@ -79,19 +77,11 @@ async def send_response(  # 发送响应
         msg_id: 消息ID
         data: 响应数据
     """
-    response = {  # 包装成 {type, id, data}
-        "type": msg_type,
-        "id": msg_id,
-        "data": data
-    }
+    response = {"type": msg_type, "id": msg_id, "data": data}  # 包装成 {type, id, data}
     await websocket.send(json.dumps(response, ensure_ascii=False))  # 转 JSON 发出去
 
 
-async def send_error(  # 发送错误
-    websocket,
-    msg_id: str,
-    error_message: str
-):
+async def send_error(websocket, msg_id: str, error_message: str):  # 发送错误
     """
     发送错误响应
 
@@ -103,13 +93,14 @@ async def send_error(  # 发送错误
     response = {  # 包装成 {type, id, error}
         "type": "error",
         "id": msg_id,
-        "error": error_message
+        "error": error_message,
     }
     await websocket.send(json.dumps(response, ensure_ascii=False))  # 发出去
     print(f"❌ 发送错误：{error_message}")
 
 
 # ==================== 处理消息 ====================
+
 
 async def handle_message(websocket, raw_message: str):  # 处理消息
     """
@@ -130,11 +121,13 @@ async def handle_message(websocket, raw_message: str):  # 处理消息
 
     print(f"📨 收到请求：type={msg_type}, id={msg_id}")
 
-    if msg_type == "get_nodes":  # 如果 type 是 get_nodes
-        registry_data = registry.get_all_for_frontend()  # 调用 registry.get_all_for_frontend()
+    if msg_type == "get_registry":  # 如果 type 是 get_registry
+        registry_data = (
+            registry.get_all_for_frontend()
+        )  # 调用 registry.get_all_for_frontend()
         await send_response(websocket, "registry", msg_id, registry_data)  # 发送响应
 
-        node_count = len(safe_get(registry_data, 'nodes', default={}))
+        node_count = len(safe_get(registry_data, "nodes", default={}))
         print(f"✅ 已发送注册表，包含 {node_count} 个节点")
 
     elif msg_type == "run_blueprint":  # 如果 type 是 run_blueprint
@@ -151,19 +144,21 @@ async def handle_message(websocket, raw_message: str):  # 处理消息
             initial_inputs = _prepare_inputs(inputs_raw)
 
             # 定义回调函数
-            async def on_progress(node_id: str, output: Any):  # 回调函数：每个节点执行完就发送进度
+            async def on_progress(
+                node_id: str, output: Any
+            ):  # 回调函数：每个节点执行完就发送进度
                 """节点执行完成的回调"""
                 result_data = serialize_output(output)
                 await send_response(
                     websocket,
                     "node_result",
                     msg_id,
-                    {"nodeId": node_id, "output": result_data}
+                    {"nodeId": node_id, "output": result_data},
                 )
                 print(f"  ↳ 节点 {node_id} 执行完成")
 
             # 执行蓝图
-            node_count = len(blueprint.get('nodes', []))
+            node_count = len(blueprint.get("nodes", []))
             print(f"🔄 开始执行蓝图，共 {node_count} 个节点")
 
             # 创建包装器以支持异步回调
@@ -171,22 +166,22 @@ async def handle_message(websocket, raw_message: str):  # 处理消息
                 """同步转异步的进度回调包装器"""
                 asyncio.create_task(on_progress(node_id, output))
 
-            result = engine.run(blueprint, initial_inputs, sync_progress)  # 调用 engine.run()，传入回调函数
+            result = engine.run(
+                blueprint, initial_inputs, sync_progress
+            )  # 调用 engine.run()，传入回调函数
 
             # 等待所有异步任务完成
             await asyncio.sleep(0.1)
 
             # 发送完成消息
             await send_response(
-                websocket,
-                "execution_complete",
-                msg_id,
-                result
+                websocket, "execution_complete", msg_id, result
             )  # 发送完成消息
             print("✅ 蓝图执行完成")
 
         except Exception as e:
             import traceback
+
             traceback.print_exc()
             await send_error(websocket, msg_id, str(e))
 
@@ -195,6 +190,7 @@ async def handle_message(websocket, raw_message: str):  # 处理消息
 
 
 # ==================== 辅助函数 ====================
+
 
 def _prepare_inputs(inputs_raw: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     """
