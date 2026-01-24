@@ -1,99 +1,98 @@
 """
-示例节点定义
+nodes/example.py - 示例节点定义
 
-演示如何使用装饰器定义节点和分类。
+用法：
+    这个文件展示了如何定义节点分类和节点
+    当loader.loadAll()被调用时，这个文件会被自动导入
+    里面的@category和@node装饰器会自动注册分类和节点
+    
+示例：
+    见下方代码
 """
 
-from decorators import category, node  # 从装饰器导入category, node
-import torch
+from decorators import category, node  # 从装饰器模块导入category和node装饰器
 
 
-@category(  # @category
-    id="example_category",  # id="example_category"
-    name="示例分类",  # name="示例分类"
-    color="#FFB6C1"  # color="#FFB6C1"
+# 定义一个示例分类
+category(  # 调用category装饰器注册分类
+    id="example_category",  # 分类唯一标识
+    label="示例节点定义",  # 分类显示名称
+    color="#FFB6C1",  # 分类颜色，粉色
+    icon=""  # 分类图标，可以是base64格式字符串
 )
-def example_category():  # 定义示例分类
-    """示例分类定义"""
-    pass
 
 
-@node(  # @node
-    id="example_node",  # id="example_node"
-    name="示例节点",  # name="示例节点"
-    inputs=["x", "y"],  # inputs=["x", "y"]
-    outputs=["result"],  # outputs=["result"]
-    params={"数字参数": 1, "布尔参数": False}  # params={"数字参数": 1, "布尔参数": False}
+@node(  # 使用node装饰器注册节点
+    opcode="example_node",  # 节点操作码，唯一标识
+    label="示例节点",  # 节点显示名称
+    category="example_category",  # 节点所属分类
+    ports={"in": ["x", "y"], "out": ["result"]},  # 输入输出端口定义
+    params={"数字参数": 1, "布尔参数": False}  # 节点参数定义
 )
-def example_node():  # 定义示例节点
+def exampleNode():
     """
-    示例节点定义
-
-    演示节点的完整结构：infer_shape、build、compute三个函数
+    示例节点 - 展示节点的基本结构
+    
+    用法：
+        这是一个示例节点，展示了infer、build、compute三个函数的写法
+        
+    示例：
+        输入两个数x和y，输出它们的和
     """
-
-    def infer_shape(input_shapes, params):  # infer_shape方法
+    
+    def infer(inputs, params):
         """
-        形状推断函数
-
-        参数:
-            input_shapes: 输入形状字典 {"x": [batch, dim], "y": [batch, dim]}
-            params: 节点参数 {"数字参数": 1, "布尔参数": False}
-
-        返回:
-            输出形状字典 {"result": [batch, dim]}
+        形状推断函数 - 根据输入形状和参数推断输出形状
+        
+        用法：
+            shape = infer({"x": [32, 64], "y": [32, 64]}, {"数字参数": 1})
+            
+        示例：
+            infer({"x": [32, 64]}, {})  # 返回{"result": [32, 64]}
         """
-        # 简单示例：输出形状与第一个输入相同
-        x_shape = input_shapes.get('x', [1, 10])
-        return {"result": x_shape}
-
-    def build(input_shapes, params):  # build方法
+        xShape = inputs.get("x", None)  # 获取输入x的形状
+        yShape = inputs.get("y", None)  # 获取输入y的形状
+        
+        if xShape is not None:  # 如果有x的形状
+            return {"result": xShape}  # 输出形状和x一样
+        
+        if yShape is not None:  # 如果有y的形状
+            return {"result": yShape}  # 输出形状和y一样
+        
+        return {"result": None}  # 没有输入形状，返回None
+    
+    def build(shape, params):
         """
-        构建层实例
-
-        参数:
-            input_shapes: 输入形状字典
-            params: 节点参数
-
-        返回:
-            层实例（可以是None、nn.Module或任何自定义对象）
+        构建层函数 - 根据形状和参数构建层实例
+        
+        用法：
+            layer = build({"result": [32, 64]}, {"数字参数": 1})
+            
+        示例：
+            这个示例节点不需要构建层，返回None
         """
-        # 示例：不需要构建特殊层，返回None
-        # 如果需要构建nn.Module，可以返回：
-        # return torch.nn.Linear(input_shapes['x'][-1], output_dim)
-        return None
-
-    def compute(inputs, layer):  # compute方法
+        return None  # 示例节点不需要层，返回None
+    
+    def compute(inputs, params, layer, ctx):
         """
-        执行计算
-
-        参数:
-            inputs: 输入数据字典 {"x": tensor, "y": tensor}
-            layer: 构建的层实例（来自build函数）
-
-        返回:
-            输出数据，可以是：
-            - 字典：{"result": tensor}
-            - 单个值：会自动包装为 {"result": value}
-            - 元组：按端口顺序映射
+        计算函数 - 执行实际的计算
+        
+        用法：
+            result = compute({"x": 10, "y": 20}, {"数字参数": 1}, None, ctx)
+            
+        示例：
+            compute({"x": 5, "y": 3}, {"数字参数": 2}, None, ctx)  # 返回{"result": 10}
         """
-        # 示例：将两个输入相加
-        x = inputs.get('x')
-        y = inputs.get('y')
-
-        if x is None or y is None:
-            # 如果输入不完整，返回默认值
-            return {"result": torch.tensor([0.0])}
-
-        # 确保是张量
-        if not isinstance(x, torch.Tensor):
-            x = torch.tensor(x, dtype=torch.float32)
-        if not isinstance(y, torch.Tensor):
-            y = torch.tensor(y, dtype=torch.float32)
-
-        # 执行计算
-        result = x + y
-
-        return {"result": result}
-
-    return infer_shape, build, compute  # 返回infer_shape、build、compute这三个func
+        x = inputs.get("x", 0)  # 获取输入x，默认为0
+        y = inputs.get("y", 0)  # 获取输入y，默认为0
+        multiplier = params.get("数字参数", 1)  # 获取数字参数，默认为1
+        
+        result = (x + y) * multiplier  # 计算结果：(x + y) * 数字参数
+        
+        return {"result": result}  # 返回结果字典
+    
+    func = {}  # 创建空字典准备装三个函数
+    func["infer"] = infer  # 存入infer函数
+    func["build"] = build  # 存入build函数
+    func["compute"] = compute  # 存入compute函数
+    return func  # 返回包含三个函数的字典

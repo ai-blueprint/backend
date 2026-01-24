@@ -1,118 +1,75 @@
 """
-执行上下文模块
+context.py - 执行上下文
 
-管理蓝图执行过程中的所有状态数据。
+用法：
+    from context import Context
+    ctx = Context(blueprintData)  # 创建执行上下文
+    inputs = ctx.getNodeInputs(nodeId)  # 获取节点的输入值
+    
+示例：
+    ctx = Context({"nodes": [...], "edges": [...]})
+    ctx.shapes["node1"] = {"out": [32, 64]}  # 存储形状推断结果
+    ctx.layers["node1"] = linearLayer  # 存储构建的层
+    ctx.results["node1"] = {"out": tensor}  # 存储执行结果
+    inputs = ctx.getNodeInputs("node2")  # 获取node2的输入
 """
 
-from typing import Any, Dict, List
 
-
-class ExecutionContext:  # 执行上下文类
+class Context:
     """
-    执行上下文
-
-    职责：
-    - 存储每个节点的输出结果
-    - 缓存已构建的层实例
-    - 管理用户传入的初始输入数据
+    执行上下文类 - 存储蓝图执行过程中的所有状态
+    
+    用法：
+        ctx = Context(blueprintData)
+        
+    示例：
+        ctx = Context({"nodes": [...], "edges": [...]})
+        ctx.shapes["node1"]["out"] = [32, 64]
+        ctx.layers["node1"] = nn.Linear(32, 64)
+        ctx.results["node1"]["out"] = tensor
     """
-
-    def __init__(self, inputs: Dict[str, Any] = None):  # 初始化
+    
+    def __init__(self, blueprintData):
         """
         初始化执行上下文
-
-        参数:
-            inputs: 用户传入的初始数据 {node_id: {port: value}}
+        
+        用法：
+            ctx = Context(blueprintData)
+            
+        示例：
+            ctx = Context({"nodes": [{"id": "node1"}], "edges": [{"source": "node1", "target": "node2"}]})
         """
-        self.results: Dict[str, Dict[str, Any]] = {}  # results：存每个节点的输出 {node_id: {port: value}}
-        self.layers: Dict[str, Any] = {}  # layers：存已构建的层 {node_id: layer_instance}
-        self.inputs: Dict[str, Any] = inputs or {}  # inputs：用户传入的初始数据
-
-    def get_inputs(  # 获取节点输入
-        self,
-        node_id: str,  # 参数：node_id
-        edges: List[Dict[str, Any]]  # 参数：edges
-    ) -> Dict[str, Any]:
+        self.blueprint = blueprintData  # 存储蓝图数据，包含nodes和edges
+        self.shapes = {}  # 存每个节点的形状，格式：{nodeId: {port: shapeValue}}
+        self.layers = {}  # 存已构建的层，格式：{nodeId: layer}
+        self.results = {}  # 存每个节点的输出，格式：{nodeId: {port: outputValue}}
+    
+    def getNodeInputs(self, nodeId):
         """
-        根据边连接关系收集节点的输入数据
-
-        参数:
-            node_id: 目标节点ID
-            edges: 所有边的列表
-
-        返回:
-            输入数据字典 {port_name: value}
+        获取节点的输入值
+        
+        用法：
+            inputs = ctx.getNodeInputs("node2")
+            
+        示例：
+            inputs = ctx.getNodeInputs("node2")  # 返回{"x": tensor, "y": tensor}
+            # 会根据edges找到连接到node2的所有边，从results里取对应的值
         """
-        inputs = {}
-
-        for edge in edges:  # 遍历所有 edges
-            if edge.get('target') == node_id:  # 如果 edge.target 是当前节点
-                source_node = edge.get('source')
-                source_port = edge.get('sourceHandle', 'out')
-                target_port = edge.get('targetHandle', 'in')
-
-                # 从 results 里取 source 节点的对应端口值
-                if source_node in self.results:
-                    source_output = self.results[source_node]
-                    if isinstance(source_output, dict) and source_port in source_output:
-                        inputs[target_port] = source_output[source_port]
-                    elif not isinstance(source_output, dict):
-                        inputs[target_port] = source_output
-
+        inputs = {}  # 创建空字典准备装输入值
+        edges = self.blueprint.get("edges", [])  # 从蓝图中获取所有边
+        
+        for edge in edges:  # 遍历所有边
+            
+            targetId = edge.get("target", "")  # 获取边的目标节点id
+            if targetId != nodeId:  # 如果目标不是当前节点
+                continue  # 跳过这条边
+            
+            sourceId = edge.get("source", "")  # 获取源节点id
+            sourcePort = edge.get("sourceHandle", "out")  # 获取源端口，默认out
+            targetPort = edge.get("targetHandle", "in")  # 获取目标端口，默认in
+            
+            sourceResults = self.results.get(sourceId, {})  # 获取源节点的输出结果
+            value = sourceResults.get(sourcePort, None)  # 获取对应端口的值
+            inputs[targetPort] = value  # 把值存入inputs字典
+        
         return inputs  # 返回收集到的输入字典
-
-    def store_result(self, node_id: str, output_dict: Dict[str, Any]):  # 存储结果
-        """
-        存储节点的输出结果
-
-        参数:
-            node_id: 节点ID
-            output_dict: 输出数据字典
-        """
-        self.results[node_id] = output_dict  # results[node_id] = output_dict
-
-    def get_result(self, node_id: str) -> Any:  # 获取结果
-        """
-        获取节点的输出结果
-
-        参数:
-            node_id: 节点ID
-
-        返回:
-            节点输出数据
-        """
-        return self.results.get(node_id)  # 返回 results[node_id]
-
-    def store_layer(self, node_id: str, layer: Any):  # 存储层
-        """
-        缓存节点的层实例
-
-        参数:
-            node_id: 节点ID
-            layer: 层实例
-        """
-        self.layers[node_id] = layer  # layers[node_id] = layer
-
-    def get_layer(self, node_id: str) -> Any:  # 获取层
-        """
-        获取节点的层实例
-
-        参数:
-            node_id: 节点ID
-
-        返回:
-            层实例，如果不存在则返回None
-        """
-        return self.layers.get(node_id)  # 返回 layers.get(node_id)
-
-    def get_initial_input(self, node_id: str) -> Any:  # 获取初始输入
-        """
-        获取用户为特定节点传入的初始数据
-
-        参数:
-            node_id: 节点ID
-
-        返回:
-            初始输入数据
-        """
-        return self.inputs.get(node_id)  # 返回 inputs.get(node_id)

@@ -1,307 +1,148 @@
 """
-蓝图执行引擎
+engine.py - 蓝图执行引擎
 
-核心模块：负责解析蓝图并按拓扑顺序执行节点计算。
+用法：
+    import engine
+    await engine.run(blueprint, inputs, onMessage, onError)  # 运行蓝图
+    
+示例：
+    async def onMsg(nodeId, result):
+        print(f"节点{nodeId}执行完成: {result}")
+    async def onErr(nodeId, error):
+        print(f"节点{nodeId}执行出错: {error}")
+    await engine.run(blueprintData, {}, onMsg, onErr)
 """
 
-import torch
-import inspect
-from typing import Any, Callable, Dict, List, Optional
-
-import loader  # 调用 loader.load_all()
-from context import ExecutionContext  # 创建执行上下文 context
-import registry  # 获取节点定义
-from utils.graph import topological_sort  # 调用 topo_sort 得到执行顺序
-from utils.tensor import extract_single_input
-from utils.validation import coerce_type
-from utils.safe import safe_call, safe_get
+import loader  # 加载器模块，用于加载所有节点
+import registry  # 注册表模块，用于获取节点定义
+import sort  # 拓扑排序模块，用于确定执行顺序
+from context import Context  # 执行上下文类
 
 
-def run(  # 运行蓝图
-    blueprint: Dict[str, Any],  # 参数：blueprint
-    inputs: Dict[str, Any],  # 参数：inputs
-    on_progress: Optional[Callable] = None,  # 参数：on_progress
-) -> Dict[str, Any]:
+loader.loadAll()  # 初始化时加载所有节点模块，装饰器会自动注册节点
+
+
+async def run(blueprint, inputs, onMessage, onError):
     """
     运行蓝图
-
-    参数:
-        blueprint: 蓝图数据，包含nodes和edges
-        inputs: 用户传入的初始数据 {node_id: {port: value}}
-        on_progress: 进度回调函数 (node_id, output) -> None
-
-    返回:
-        执行结果 {"success": True} 或 {"node_id": str, "error": str}
+    
+    用法：
+        await run(blueprint, inputs, onMessage, onError)
+        
+    示例：
+        await run(
+            {"nodes": [...], "edges": [...]},  # 蓝图数据
+            {"input1": tensor},  # 外部输入
+            async def(nodeId, result): pass,  # 节点完成回调
+            async def(nodeId, error): pass  # 节点错误回调
+        )
     """
-    loader.load_all_nodes()  # 调用 loader.load_all() 确保节点已加载
-
-    context = ExecutionContext(inputs)  # 创建执行上下文 context
-
-    nodes = blueprint.get("nodes", [])  # 解析 blueprint 得到 nodes
-    edges = blueprint.get("edges", [])  # 解析 blueprint 得到 edges
-
-    # 转换nodes列表为字典，便于查询
-    nodes_data = {node["id"]: node for node in nodes if "id" in node}
-
-    execution_order = topological_sort(nodes_data, edges)  # 调用 topo_sort 得到执行顺序
-
-    # 执行形状推断和构建层实例
-    for node_id in execution_order:
-        node_data = nodes_data.get(node_id)
-        if not node_data:
-            continue
-
-        node_type = _get_node_type(node_data)
-        params = _extract_params(node_data)
-
-        node_def = registry.get_function(node_type)  # 从 registry 获取节点定义
-        if not node_def:
-            continue
-
-        func_factory = node_def.get("func")
-        if not func_factory:
-            continue
-
-        try:
-            infer, build, compute = func_factory()
-
-            # 执行形状推断
-            node_inputs = context.get_inputs(node_id, edges)
-            input_shapes = _compute_input_shapes(node_inputs)
-
-            # 构建或获取层实例
-            if context.get_layer(node_id) is not None:  # 如果 context 里有缓存，直接用
-                continue
-            else:  # 否则
-                # 获取节点参数 params
-                layer = _invoke_build(
-                    build, input_shapes, params
-                )  # 调用定义里的 build 函数
-                context.store_layer(node_id, layer)  # 存入 context
-        except Exception:
-            pass  # 忽略构建错误，在执行时处理
-
-    # 遍历执行
-    for node_id in execution_order:
+    nodes = blueprint.get("nodes", [])  # 从蓝图中提取节点列表
+    edges = blueprint.get("edges", [])  # 从蓝图中提取边列表
+    
+    sortedIds = sort.topoSort(nodes, edges)  # 调用拓扑排序，得到执行顺序
+    print(f"拓扑排序结果: {sortedIds}")  # 打印排序结果
+    
+    ctx = Context(blueprint)  # 创建执行上下文
+    
+    nodeMap = {}  # 创建节点id到节点数据的映射
+    for node in nodes:  # 遍历所有节点
+        nodeId = node.get("id", "")  # 获取节点id
+        nodeMap[nodeId] = node  # 存入映射字典
+    
+    # 形状推断阶段
+    print("开始形状推断...")  # 打印阶段信息
+    for nodeId in sortedIds:  # 按拓扑顺序遍历节点
+        node = nodeMap.get(nodeId, {})  # 获取节点数据
+        opcode = node.get("type", "")  # 获取节点类型（opcode）
+        params = node.get("data", {}).get("params", {})  # 获取节点参数
+        
+        nodeDef = registry.nodes.get(opcode, None)  # 从注册表获取节点定义
+        if nodeDef is None:  # 如果找不到节点定义
+            continue  # 跳过这个节点
+        
+        func = nodeDef.get("func", None)  # 获取节点的func
+        if func is None:  # 如果没有func
+            continue  # 跳过这个节点
+        
+        infer = func.get("infer", None)  # 获取infer函数
+        if infer is None:  # 如果没有infer函数
+            continue  # 跳过形状推断
+        
+        inputShapes = {}  # 收集输入形状
+        for edge in edges:  # 遍历所有边
+            if edge.get("target", "") != nodeId:  # 如果目标不是当前节点
+                continue  # 跳过这条边
+            sourceId = edge.get("source", "")  # 获取源节点id
+            sourcePort = edge.get("sourceHandle", "out")  # 获取源端口
+            targetPort = edge.get("targetHandle", "in")  # 获取目标端口
+            sourceShape = ctx.shapes.get(sourceId, {}).get(sourcePort, None)  # 获取源节点的输出形状
+            inputShapes[targetPort] = sourceShape  # 存入输入形状字典
+        
+        shape = infer(inputShapes, params)  # 调用infer函数进行形状推断
+        ctx.shapes[nodeId] = shape  # 存入context.shapes
+        print(f"节点{nodeId}形状推断: {shape}")  # 打印推断结果
+    
+    # 构建层实例阶段
+    print("开始构建层...")  # 打印阶段信息
+    for nodeId in sortedIds:  # 按拓扑顺序遍历节点
+        node = nodeMap.get(nodeId, {})  # 获取节点数据
+        opcode = node.get("type", "")  # 获取节点类型
+        params = node.get("data", {}).get("params", {})  # 获取节点参数
+        
+        nodeDef = registry.nodes.get(opcode, None)  # 从注册表获取节点定义
+        if nodeDef is None:  # 如果找不到节点定义
+            continue  # 跳过这个节点
+        
+        func = nodeDef.get("func", None)  # 获取节点的func
+        if func is None:  # 如果没有func
+            continue  # 跳过这个节点
+        
+        build = func.get("build", None)  # 获取build函数
+        if build is None:  # 如果没有build函数
+            continue  # 跳过层构建
+        
+        shape = ctx.shapes.get(nodeId, {})  # 获取当前节点的形状
+        layer = build(shape, params)  # 调用build函数构建层
+        ctx.layers[nodeId] = layer  # 存入context.layers
+        print(f"节点{nodeId}层构建完成")  # 打印构建结果
+    
+    # 逐节点执行阶段
+    print("开始执行节点...")  # 打印阶段信息
+    for nodeId in sortedIds:  # 按拓扑顺序遍历节点
+        node = nodeMap.get(nodeId, {})  # 获取节点数据
+        opcode = node.get("type", "")  # 获取节点类型
+        params = node.get("data", {}).get("params", {})  # 获取节点参数
+        
+        nodeDef = registry.nodes.get(opcode, None)  # 从注册表获取节点定义
+        if nodeDef is None:  # 如果找不到节点定义
+            errorMsg = f"未知的节点类型: {opcode}"  # 构造错误信息
+            await onError(nodeId, errorMsg)  # 发送错误
+            break  # 终止执行
+        
+        func = nodeDef.get("func", None)  # 获取节点的func
+        if func is None:  # 如果没有func
+            errorMsg = f"节点{opcode}没有定义执行函数"  # 构造错误信息
+            await onError(nodeId, errorMsg)  # 发送错误
+            break  # 终止执行
+        
+        compute = func.get("compute", None)  # 获取compute函数
+        if compute is None:  # 如果没有compute函数
+            errorMsg = f"节点{opcode}没有定义compute函数"  # 构造错误信息
+            await onError(nodeId, errorMsg)  # 发送错误
+            break  # 终止执行
+        
         try:  # 尝试执行节点
-            node_data = nodes_data.get(node_id)
-            if not node_data:
-                continue
-
-            output = execute_node(node_id, node_data, context, edges)  # 执行单个节点
-            context.store_result(node_id, output)  # 存储结果
-
-            if on_progress:  # 如果有回调，发送进度
-                on_progress(node_id, output)
-
-        except Exception as e:  # 捕获异常
-            return {"node_id": node_id, "error": str(e)}  # 返回 {node_id, error}
-            # 终止执行，跳出遍历（通过return实现）
-
-    return {"success": True}  # 返回完成信息
-
-
-def execute_node(  # 执行单个节点
-    node_id: str,  # 参数：node_id
-    node_data: Dict[str, Any],  # 参数：node_data
-    context: ExecutionContext,  # 参数：context
-    edges: List[Dict[str, Any]],  # 参数：edges
-) -> Dict[str, Any]:
-    """
-    执行单个节点
-
-    参数:
-        node_id: 节点ID
-        node_data: 节点数据
-        context: 执行上下文
-        edges: 边列表
-
-    返回:
-        输出数据字典
-    """
-    node_type = _get_node_type(node_data)  # 获取节点类型
-    params = _extract_params(node_data)
-
-    node_def = registry.get_function(node_type)  # 从 registry 获取节点定义
-
-    if not node_def:  # 如果找不到定义，抛异常
-        raise Exception(f"未找到节点定义: {node_type}")
-
-    func_factory = node_def.get("func")
-    if not func_factory:
-        raise Exception(f"节点 {node_type} 缺少func定义")
-
-    infer, build, compute = func_factory()
-
-    # 收集输入
-    is_input_node = node_type == "input"
-    inputs = context.get_inputs(
-        node_id, edges
-    )  # 收集输入：context.get_inputs(node_id, edges)
-
-    if is_input_node and not inputs:  # 如果是输入节点且无输入
-        inputs = context.get_initial_input(
-            node_id
-        )  # 使用 context.get_initial_input(node_id)
-        # 确保inputs是字典格式
-        if not isinstance(inputs, dict):
-            inputs = {"out": inputs}
-    # 否则（已在上面处理）
-
-    # 执行计算
-    layer = context.get_layer(node_id)  # 调用定义里的 compute 函数
-    output = _run_compute(
-        compute, layer, inputs, node_type, node_def
-    )  # 传入 layer, inputs, params
-
-    # 确保输出是字典格式
-    output = ensure_dict_output(output, node_type, node_def)
-
-    return output  # 返回输出
-
-
-def ensure_dict_output(  # 确保字典输出
-    output: Any, node_type: str, node_def: Dict[str, Any]
-) -> Dict[str, Any]:
-    """
-    确保输出为字典格式
-
-    参数:
-        output: 原始输出
-        node_type: 节点类型
-        node_def: 节点定义
-
-    返回:
-        字典格式的输出
-    """
-    if isinstance(output, dict):  # 如果已经是字典，直接返回
-        return output
-
-    # 如果是单值，包装成 {output: value}
-    out_ports = safe_get(node_def, "ports", "out", default=["out"])
-    if not isinstance(output, tuple):
-        return {out_ports[0]: output}
-
-    # 如果是元组，按 outputs 端口名包装
-    result = {}
-    for i, value in enumerate(output):
-        if i < len(out_ports):
-            result[out_ports[i]] = value
-    return result
-
-
-# ==================== 辅助函数（支持主流程） ====================
-
-
-def _get_node_type(node_info: Dict[str, Any]) -> str:
-    """从节点信息中提取类型（opcode）"""
-    return safe_get(node_info, "data", "nodeKey") or node_info.get("type", "")
-
-
-def _extract_params(node_info: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    从节点信息中提取参数
-
-    支持两种格式：
-    1. 新格式: data.params = {"key": {"type": "...", "default": value}}
-    2. 旧格式: params = {"key": value}
-    """
-    raw_params = safe_get(node_info, "data", "params", default={})
-
-    if not raw_params:
-        return node_info.get("params", {})
-
-    # 检测是否为新格式
-    first_value = next(iter(raw_params.values()), None)
-    if isinstance(first_value, dict) and "default" in first_value:
-        return _convert_new_format_params(raw_params)
-
-    return raw_params
-
-
-def _convert_new_format_params(raw_params: Dict[str, Dict]) -> Dict[str, Any]:
-    """将新格式参数转换为简单键值对"""
-    result = {}
-    for key, param_obj in raw_params.items():
-        default_val = param_obj.get("default")
-        param_type = param_obj.get("type", "string")
-        result[key] = coerce_type(default_val, param_type, default=default_val)
-    return result
-
-
-def _compute_input_shapes(inputs: Dict[str, Any]) -> Dict[str, List[int]]:
-    """计算输入的形状信息"""
-    shapes = {}
-    for key, value in inputs.items():
-        if hasattr(value, "shape"):
-            shapes[key] = list(value.shape)
-        elif isinstance(value, (list, tuple)):
-            shapes[key] = _infer_list_shape(value)
-        else:
-            shapes[key] = value
-    return shapes
-
-
-def _infer_list_shape(lst: Any) -> List[int]:
-    """推断嵌套列表的形状"""
-    shape = []
-    current = lst
-    while isinstance(current, (list, tuple)):
-        shape.append(len(current))
-        if len(current) == 0:
-            break
-        current = current[0]
-    return shape
-
-
-def _invoke_build(
-    build_func: Callable, input_shapes: Dict[str, List[int]], params: Dict[str, Any]
-) -> Any:
-    """根据build函数签名调用构建"""
-    sig = inspect.signature(build_func)
-    param_count = len(sig.parameters)
-
-    if param_count == 2:
-        return safe_call(build_func, input_shapes, params, default=None)
-    else:
-        return safe_call(build_func, params, default=None)
-
-
-def _run_compute(
-    compute_func: Callable,
-    layer: Any,
-    inputs: Dict[str, Any],
-    node_type: str,
-    node_def: Dict[str, Any],
-) -> Any:
-    """
-    执行节点计算
-
-    策略：
-    1. 无输入节点 -> compute(None, layer)
-    2. 单输入 + nn.Module -> 直接调用 layer(x)
-    3. 单输入 + 其他 -> compute(x, layer)
-    4. 多输入 -> compute(inputs, layer)
-    """
-    input_ports = safe_get(node_def, "ports", "in", default=[])
-
-    # 无输入节点
-    if len(input_ports) == 0:
-        return safe_call(compute_func, None, layer, default=None)
-
-    # 单输入节点
-    if len(input_ports) == 1:
-        port_name = input_ports[0]
-        x = extract_single_input(inputs, port_name)
-
-        if x is None:
-            return None
-
-        # nn.Module 直接调用
-        if isinstance(layer, torch.nn.Module):
-            return safe_call(layer, x, default=None)
-
-        return safe_call(compute_func, x, layer, default=None)
-
-    # 多输入节点
-    return safe_call(compute_func, inputs, layer, default=None)
+            nodeInputs = ctx.getNodeInputs(nodeId)  # 获取节点的输入值
+            layer = ctx.layers.get(nodeId, None)  # 获取已构建的层
+            result = compute(nodeInputs, params, layer, ctx)  # 调用compute函数执行计算
+            ctx.results[nodeId] = result  # 存入context.results
+            await onMessage(nodeId, result)  # 发送节点执行结果
+            print(f"节点{nodeId}执行完成")  # 打印执行结果
+        except Exception as e:  # 如果执行出错
+            errorMsg = str(e)  # 获取错误信息
+            await onError(nodeId, errorMsg)  # 发送错误
+            print(f"节点{nodeId}执行出错: {errorMsg}")  # 打印错误信息
+            break  # 终止执行，跳出遍历
+    
+    print("蓝图执行完成")  # 打印完成信息

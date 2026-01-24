@@ -1,137 +1,58 @@
 """
-节点加载器模块
+loader.py - 动态加载模块
 
-负责动态加载 nodes/ 目录下的所有节点定义文件。
+用法：
+    import loader
+    loader.loadAll()  # 加载nodes文件夹下的所有节点模块
+    
+示例：
+    loader.loadAll()  # 扫描nodes文件夹，动态导入所有.py文件
 """
 
-import os
-import sys
-import importlib.util
-from typing import Dict, Tuple, Optional, List
-
-import registry
+import os  # 操作系统模块，用于文件路径操作
+import importlib  # 动态导入模块的库
 
 
-def load_all_nodes(nodes_dir: str) -> Tuple[Dict, Dict]:  # 加载所有节点
+def importModule(filepath):
     """
-    加载指定目录下的所有节点定义
-
-    参数:
-        nodes_dir: 节点目录路径
-
-    返回:
-        (categories, nodes) 元组
+    动态导入模块
+    
+    用法：
+        importModule("nodes/math.py")  # 导入nodes/math.py模块
+        importModule("nodes/layers.py")  # 导入nodes/layers.py模块
+        
+    示例：
+        importModule("nodes/example.py")  # 会被转换成nodes.example模块并导入
     """
-    registry.reset_registry()  # 重置注册表
-
-    if not _validate_directory(nodes_dir):  # 获取 nodes 文件夹路径
-        return {}, {}
-
-    _load_directory(nodes_dir)  # 遍历文件夹
-
-    return registry._categories, registry._nodes  # 返回加载数量
+    relative = filepath.replace("\\", "/")  # 把Windows路径的反斜杠替换成正斜杠
+    noExt = relative.replace(".py", "")  # 去掉.py后缀
+    moduleName = noExt.replace("/", ".")  # 把路径分隔符替换成点号，变成模块名格式
+    importlib.import_module(moduleName)  # 使用importlib动态导入这个模块
 
 
-def reload_nodes(nodes_dir: str) -> Tuple[Dict, Dict]:
+def loadAll():
     """
-    重新加载节点（用于开发时热更新）
-
-    参数:
-        nodes_dir: 节点目录路径
-
-    返回:
-        (categories, nodes) 元组
+    加载所有节点模块
+    
+    用法：
+        loadAll()  # 扫描nodes文件夹，加载所有.py节点文件
+        
+    示例：
+        loadAll()  # 自动加载nodes/*.py，里面的@category和@node装饰器会自动注册节点
     """
-    _unload_node_modules()
-    return load_all_nodes(nodes_dir)
-
-
-# ==================== 内部函数 ====================
-
-def _validate_directory(nodes_dir: str) -> bool:
-    """验证目录是否存在"""
-    if not os.path.exists(nodes_dir):
-        print(f"⚠️ 节点目录不存在: {nodes_dir}")
-        return False
-    if not os.path.isdir(nodes_dir):
-        print(f"⚠️ 路径不是目录: {nodes_dir}")
-        return False
-    return True
-
-
-def _load_directory(nodes_dir: str):  # 遍历文件夹
-    """递归加载目录下的所有节点模块"""
-    for root, _, files in os.walk(nodes_dir):
-        for file in files:
-            if _is_node_file(file):  # 如果是 .py 文件
-                _load_module_safe(root, file)  # 动态导入模块
-
-
-def _is_node_file(filename: str) -> bool:
-    """判断文件是否为有效的节点定义文件"""
-    if not filename.endswith(".py"):
-        return False
-    if filename.startswith("_") or filename == "__pycache__":  # 跳过 __pycache__
-        return False
-    if filename == "__init__.py":  # 跳过 __init__.py
-        return False
-    return True
-
-
-def _load_module_safe(root: str, filename: str):  # 动态导入模块
-    """安全地加载单个模块"""
-    file_path = os.path.join(root, filename)
-    module_name = _generate_module_name(filename)  # 根据文件路径计算模块名
-
-    try:
-        _load_module(file_path, module_name)  # 使用 importlib 加载
-        # 模块中的 @category 和 @node 装饰器会自动注册
-    except Exception as e:  # 捕获异常并打印警告
-        print(f"❌ 加载算子模块失败 {file_path}: {e}")
-
-
-def _generate_module_name(filename: str) -> str:
-    """生成模块名称"""
-    base_name = filename[:-3]  # 移除 .py
-    return f"nodes.{base_name}"
-
-
-def _load_module(file_path: str, module_name: str):  # 动态导入模块
-    """动态加载模块"""
-    spec = importlib.util.spec_from_file_location(module_name, file_path)  # 根据文件路径计算模块名
-
-    if spec is None or spec.loader is None:
-        raise ImportError(f"无法创建模块规范: {file_path}")
-
-    module = importlib.util.module_from_spec(spec)  # 使用 importlib 加载
-    sys.modules[module_name] = module
-    spec.loader.exec_module(module)
-
-
-def _unload_node_modules():
-    """卸载已加载的节点模块（用于重新加载）"""
-    to_remove = [name for name in sys.modules if name.startswith("nodes.")]
-    for name in to_remove:
-        del sys.modules[name]
-
-
-# ==================== 工具函数 ====================
-
-def get_loaded_nodes() -> List[str]:
-    """获取已加载的节点列表"""
-    return list(registry._nodes.keys())
-
-
-def get_loaded_categories() -> List[str]:
-    """获取已加载的分类列表"""
-    return list(registry._categories.keys())
-
-
-def get_node_info(opcode: str) -> Optional[Dict]:
-    """获取指定节点的信息"""
-    return registry._nodes.get(opcode)
-
-
-def get_category_info(cat_id: str) -> Optional[Dict]:
-    """获取指定分类的信息"""
-    return registry._categories.get(cat_id)
+    nodesDir = os.path.join(os.path.dirname(__file__), "nodes")  # 获取nodes文件夹的绝对路径
+    
+    for filename in os.listdir(nodesDir):  # 遍历nodes文件夹下的所有文件
+        
+        if filename == "__pycache__":  # 如果是__pycache__文件夹
+            continue  # 跳过，不处理
+        
+        if filename == "__init__.py":  # 如果是__init__.py文件
+            continue  # 跳过，不处理
+        
+        if not filename.endswith(".py"):  # 如果不是.py文件
+            continue  # 跳过，不处理
+        
+        filepath = os.path.join("nodes", filename)  # 拼接相对路径，比如nodes/math.py
+        importModule(filepath)  # 动态导入这个模块
+        print(f"已加载节点模块: {filepath}")  # 打印加载信息
