@@ -14,8 +14,9 @@ from nodes import create_passthrough_node
 
 @category(
     id="basic",
-    name="基础",
-    color="#8B92E5"
+    label="基础",
+    color="#8B92E5",
+    icon="base64"
 )
 def basic_category():
     pass
@@ -24,8 +25,8 @@ def basic_category():
 # ==================== 节点定义 ====================
 
 @node(
-    id="input",
-    name="输入",
+    opcode="input",
+    label="输入",
     outputs=["out"],
     params={"输出维度": [1, 10]}
 )
@@ -50,8 +51,8 @@ def input_node():
 
 
 @node(
-    id="output",
-    name="输出",
+    opcode="output",
+    label="输出",
     inputs=["in"],
     outputs=["out"],
     params={}
@@ -66,8 +67,9 @@ def output_node():
 
 
 @node(
-    id="constant",
-    name="常量",
+    opcode="constant",
+    label="常量",
+    category="basic",
     outputs=["out"],
     params={"value": 0}
 )
@@ -89,8 +91,8 @@ def constant_node():
 
 
 @node(
-    id="debug",
-    name="调试输出",
+    opcode="debug",
+    label="调试输出",
     inputs=["x"],
     outputs=["out"],
     params={"label": "debug"}

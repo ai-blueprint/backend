@@ -38,6 +38,8 @@ async def sendMessage(ws, type, id, data):
     msg["id"] = id  # 消息ID，用于前端匹配请求和响应
     msg["data"] = data  # 消息数据，具体内容根据type不同而不同
     text = json.dumps(msg)  # 把字典转成JSON字符串
+    print(f"发送给前端消息: {type} {data}")  # 打印发送的消息类型、ID和数据
+    
     await ws.send(text)  # 通过WebSocket发送给前端
 
 
@@ -73,7 +75,7 @@ async def handleMessage(ws, message):
     type = data.get("type", "")  # 提取消息类型，默认空字符串
     id = data.get("id", "")  # 提取消息ID，默认空字符串
     
-    if type == "getNodes":  # 如果是请求节点注册表
+    if type == "getRegistry":  # 如果是请求节点注册表
         result = registry.getAllForFrontend()  # 调用registry获取前端格式的节点数据
         await sendMessage(ws, type, id, result)  # 发送响应给前端
         return  # 处理完毕，返回
