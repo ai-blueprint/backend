@@ -37,8 +37,8 @@ async def sendMessage(ws, type, id, data):
     msg["type"] = type  # 消息类型，比如getNodes、runBlueprint
     msg["id"] = id  # 消息ID，用于前端匹配请求和响应
     msg["data"] = data  # 消息数据，具体内容根据type不同而不同
+    print(f"发送给前端消息: {type} {data}")
     text = json.dumps(msg)  # 把字典转成JSON字符串
-    print(f"发送给前端消息: {type} {data}")  # 打印发送的消息类型、ID和数据
     
     await ws.send(text)  # 通过WebSocket发送给前端
 
@@ -80,7 +80,7 @@ async def handleMessage(ws, message):
         await sendMessage(ws, type, id, result)  # 发送响应给前端
         return  # 处理完毕，返回
     
-    if type == "runBlueprint":  # 如果是请求运行蓝图
+    elif type == "runBlueprint":  # 如果是请求运行蓝图
         blueprint = data.get("blueprint", {})  # 提取蓝图数据
         inputs = data.get("inputs", {})  # 提取输入数据
         
@@ -93,6 +93,10 @@ async def handleMessage(ws, message):
         await engine.run(blueprint, inputs, onMessage, onError)  # 调用引擎运行蓝图
         await sendMessage(ws, "blueprintComplete", id, {})  # 发送蓝图执行完成消息
         return  # 处理完毕，返回
+    
+    else:  # 如果是未知消息类型
+        await sendError(ws, "unknown", id, f"未知消息类型：{type}")  # 发送未知消息类型的错误消息
+        return
 
 
 async def handleConnection(ws):

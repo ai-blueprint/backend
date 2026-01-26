@@ -29,7 +29,6 @@ def registerCategory(id, label, color, icon):
         registerCategory("activations", "激活函数", "#FFE66D", "")
     """
     cat = {}  # 创建空字典准备装分类信息
-    cat["id"] = id  # 分类唯一标识
     cat["label"] = label  # 分类显示名称
     cat["color"] = color  # 分类颜色，用于前端显示
     cat["icon"] = icon  # 分类图标，base64格式
@@ -51,13 +50,12 @@ def registerNode(opcode, label, category, ports, params, func):
     node = {}  # 创建空字典准备装节点信息
     node["opcode"] = opcode  # 节点操作码，唯一标识
     node["label"] = label  # 节点显示名称
-    node["category"] = category  # 节点所属分类的id
     node["ports"] = ports  # 节点的输入输出端口定义
     node["params"] = params  # 节点的参数定义
     node["func"] = func  # 节点的执行函数（包含infer、build、compute）
     nodes[opcode] = node  # 存入全局nodes字典
-    if category in categories:  # 如果分类存在
-        categories[category]["nodes"].append(opcode)  # 把节点opcode加入分类的nodes列表
+    # 把节点opcode加入categories最后一个categorie的nodes列表
+    categories[list(categories.keys())[-1]]["nodes"].append(opcode)
 
 
 def getAllForFrontend():

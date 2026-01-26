@@ -25,7 +25,6 @@ category(  # 调用category装饰器注册分类
 @node(  # 使用node装饰器注册节点
     opcode="example_node",  # 节点操作码，唯一标识
     label="示例节点",  # 节点显示名称
-    category="example_category",  # 节点所属分类
     ports={"in": ["x", "y"], "out": ["result"]},  # 输入输出端口定义
     params={"数字参数": 1, "布尔参数": False}  # 节点参数定义
 )

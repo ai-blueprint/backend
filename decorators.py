@@ -43,7 +43,7 @@ def category(id="", label="", color="#888888", icon=""):
     return wrapper  # 返回包装函数，让Python用它来装饰下方的函数
 
 
-def node(opcode="", label="", category="", ports=None, inputs=None, outputs=None, params=None):
+def node(opcode="", label="", ports=None, inputs=None, outputs=None, params=None):
     """
     节点装饰器 - 用于注册一个节点定义
     

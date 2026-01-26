@@ -69,7 +69,6 @@ def output_node():
 @node(
     opcode="constant",
     label="常量",
-    category="basic",
     outputs=["out"],
     params={"value": 0}
 )
