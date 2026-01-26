@@ -3,9 +3,6 @@ loader.py - 动态加载模块
 
 用法：
     import loader
-    loader.loadAll()  # 加载nodes文件夹下的所有节点模块
-    
-示例：
     loader.loadAll()  # 扫描nodes文件夹，动态导入所有.py文件
 """
 
