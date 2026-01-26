@@ -16,7 +16,6 @@ registry.py - 节点注册表
 nodes = {}  # 全局变量：节点定义字典，key是opcode，value是节点信息
 categories = {}  # 全局变量：分类定义字典，key是id，value是分类信息
 
-
 def registerCategory(id, label, color, icon):
     """
     注册分类
@@ -36,16 +35,16 @@ def registerCategory(id, label, color, icon):
     categories[id] = cat  # 存入全局categories字典
 
 
-def registerNode(opcode, label, category, ports, params, func):
+def registerNode(opcode, label, ports, params, func):
     """
     注册节点
 
     用法：
-        registerNode("add", "加法", "math", {"in": ["a", "b"], "out": ["result"]}, {}, addFunc)
+        registerNode("add", "加法", {"in": ["a", "b"], "out": ["result"]}, {}, addFunc)
 
     示例：
-        registerNode("linear", "线性层", "layers", {"in": ["x"], "out": ["y"]}, {"units": 64}, linearFunc)
-        registerNode("relu", "ReLU", "activations", {"in": ["x"], "out": ["y"]}, {}, reluFunc)
+        registerNode("linear", "线性层", {"in": ["x"], "out": ["y"]}, {"units": 64}, linearFunc)
+        registerNode("relu", "ReLU", {"in": ["x"], "out": ["y"]}, {}, reluFunc)
     """
     node = {}  # 创建空字典准备装节点信息
     node["opcode"] = opcode  # 节点操作码，唯一标识

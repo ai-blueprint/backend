@@ -81,8 +81,7 @@ async def handleMessage(ws, message):
         return  # 处理完毕，返回
     
     elif type == "runBlueprint":  # 如果是请求运行蓝图
-        blueprint = data.get("blueprint", {})  # 提取蓝图数据
-        inputs = data.get("inputs", {})  # 提取输入数据
+        blueprint = data.get("blueprint", {})  # 提取蓝图数据，默认空字典
         
         async def onMessage(nodeId, result):  # 定义节点执行完成的回调
             await sendMessage(ws, "nodeResult", id, {"nodeId": nodeId, "result": result})  # 发送节点结果
@@ -90,7 +89,7 @@ async def handleMessage(ws, message):
         async def onError(nodeId, error):  # 定义节点执行出错的回调
             await sendError(ws, "nodeError", id, {"nodeId": nodeId, "error": error})  # 发送节点错误
         
-        await engine.run(blueprint, inputs, onMessage, onError)  # 调用引擎运行蓝图
+        await engine.run(blueprint, onMessage, onError)  # 调用引擎运行蓝图
         await sendMessage(ws, "blueprintComplete", id, {})  # 发送蓝图执行完成消息
         return  # 处理完毕，返回
     

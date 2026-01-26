@@ -21,9 +21,6 @@ decorators.py - 装饰器
 
 import registry  # 注册表模块，用于注册分类和节点
 
-currentCategory = ""  # 当前分类id，用于自动归类后续注册的节点
-
-
 def category(id="", label="", color="#888888", icon=""):
     """
     分类装饰器 - 用于注册一个节点分类
@@ -33,8 +30,6 @@ def category(id="", label="", color="#888888", icon=""):
         def math_category():
             pass
     """
-    global currentCategory  # 声明使用全局变量
-    currentCategory = id  # 设置当前分类为这个分类的id
     registry.registerCategory(id, label, color, icon)  # 调用registry注册这个分类
     
     def wrapper(fn):  # 定义内部包装函数，用来接收被装饰的函数
@@ -64,14 +59,12 @@ def node(opcode="", label="", ports=None, inputs=None, outputs=None, params=None
     if params is None:  # 如果没有传params参数
         params = {}  # 使用默认空参数
     
-    nodeCategory = category if category else currentCategory  # 如果没传category就用当前分类
-    
     def decorator(fn):  # 定义装饰器函数，接收被装饰的函数
         """
         装饰器内部函数 - 接收被装饰的函数并注册节点
         """
         func = fn()  # 调用被装饰的函数，获取返回的(infer, build, compute)元组或字典
-        registry.registerNode(opcode, label, nodeCategory, ports, params, func)  # 调用registry注册这个节点
+        registry.registerNode(opcode, label, ports, params, func)  # 调用registry注册这个节点
         return fn  # 返回原函数，保持可调用性
     
     return decorator  # 返回装饰器函数
