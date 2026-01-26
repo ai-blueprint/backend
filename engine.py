@@ -10,7 +10,7 @@ engine.py - 蓝图执行引擎
         print(f"节点{nodeId}执行完成: {result}")
     async def onErr(nodeId, error):
         print(f"节点{nodeId}执行出错: {error}")
-    await engine.run(blueprintData, {}, onMsg, onErr)
+    await engine.run(blueprintData, onMsg, onErr)
 """
 
 import loader  # 加载器模块，用于加载所有节点
@@ -36,11 +36,6 @@ async def run(blueprint, onMessage, onError):
             async def(nodeId, error): pass  # 节点错误回调
         )
     """
-    # 检查蓝图是否为空对象：{}
-    if not blueprint:
-        await onError("blueprintError", "蓝图为空对象")  # 发送错误回调
-        return  # 处理完毕，返回
-    print(f"开始执行蓝图: {blueprint}")  # 打印蓝图数据
     
     nodes = blueprint.get("nodes", [])  # 从蓝图中提取节点列表
     edges = blueprint.get("edges", [])  # 从蓝图中提取边列表
@@ -58,20 +53,25 @@ async def run(blueprint, onMessage, onError):
     # 形状推断阶段
     print("开始形状推断...")  # 打印阶段信息
     for nodeId in sortedIds:  # 按拓扑顺序遍历节点
-        node = nodeMap.get(nodeId, {})  # 获取节点数据
-        opcode = node.get("type", "")  # 获取节点类型（opcode）
-        params = node.get("data", {}).get("params", {})  # 获取节点参数
+        node = nodeMap.get(nodeId)  # 获取节点数据
+        opcode = node.get("type")  # 获取节点类型（opcode）
+        params = node.get("data").get("params")  # 获取节点参数
 
-        nodeDef = registry.nodes.get(opcode, None)  # 从注册表获取节点定义
+        nodeDef = registry.nodes.get(opcode)  # 从注册表获取节点定义
+        print(f"全部节点: {registry.nodes}，opcode: {opcode}，节点定义: {nodeDef}")  # 打印节点定义
+        breakpoint()
         if nodeDef is None:  # 如果找不到节点定义
+            print(f"节点{nodeId}未注册")
             continue  # 跳过这个节点
 
-        func = nodeDef.get("func", None)  # 获取节点的func
+        func = nodeDef.get("func")  # 获取节点的func
         if func is None:  # 如果没有func
+            print(f"节点{nodeId}没有func")
             continue  # 跳过这个节点
 
-        infer = func.get("infer", None)  # 获取infer函数
+        infer = func.get("infer")  # 获取infer函数
         if infer is None:  # 如果没有infer函数
+            print(f"节点{nodeId}没有infer函数")
             continue  # 跳过形状推断
 
         inputShapes = {}  # 收集输入形状
@@ -81,8 +81,8 @@ async def run(blueprint, onMessage, onError):
             sourceId = edge.get("source", "")  # 获取源节点id
             sourcePort = edge.get("sourceHandle", "out")  # 获取源端口
             targetPort = edge.get("targetHandle", "in")  # 获取目标端口
-            sourceShape = ctx.shapes.get(sourceId, {}).get(
-                sourcePort, None
+            sourceShape = ctx.shapes.get(sourceId).get(
+                sourcePort
             )  # 获取源节点的输出形状
             inputShapes[targetPort] = sourceShape  # 存入输入形状字典
 
@@ -93,47 +93,49 @@ async def run(blueprint, onMessage, onError):
     # 构建层实例阶段
     print("开始构建层...")  # 打印阶段信息
     for nodeId in sortedIds:  # 按拓扑顺序遍历节点
-        node = nodeMap.get(nodeId, {})  # 获取节点数据
+        node = nodeMap.get(nodeId)  # 获取节点数据
         opcode = node.get("type", "")  # 获取节点类型
-        params = node.get("data", {}).get("params", {})  # 获取节点参数
+        params = node.get("data").get("params")  # 获取节点参数
 
-        nodeDef = registry.nodes.get(opcode, None)  # 从注册表获取节点定义
+        nodeDef = registry.nodes.get(opcode)  # 从注册表获取节点定义
         if nodeDef is None:  # 如果找不到节点定义
             continue  # 跳过这个节点
 
-        func = nodeDef.get("func", None)  # 获取节点的func
+        func = nodeDef.get("func")  # 获取节点的func
         if func is None:  # 如果没有func
             continue  # 跳过这个节点
 
-        build = func.get("build", None)  # 获取build函数
+        build = func.get("build")  # 获取build函数
         if build is None:  # 如果没有build函数
             continue  # 跳过层构建
 
-        shape = ctx.shapes.get(nodeId, {})  # 获取当前节点的形状
+        shape = ctx.shapes.get(nodeId)  # 获取当前节点的形状
         layer = build(shape, params)  # 调用build函数构建层
         ctx.layers[nodeId] = layer  # 存入context.layers
         print(f"节点{nodeId}层构建完成")  # 打印构建结果
-
+    
+    print(f"上下文状态: {ctx.shapes}")  # 打印上下文状态
+    
     # 逐节点执行阶段
     print("开始执行节点...")  # 打印阶段信息
     for nodeId in sortedIds:  # 按拓扑顺序遍历节点
-        node = nodeMap.get(nodeId, {})  # 获取节点数据
+        node = nodeMap.get(nodeId)  # 获取节点数据
         opcode = node.get("type", "")  # 获取节点类型
-        params = node.get("data", {}).get("params", {})  # 获取节点参数
+        params = node.get("data").get("params")  # 获取节点参数
 
-        nodeDef = registry.nodes.get(opcode, None)  # 从注册表获取节点定义
+        nodeDef = registry.nodes.get(opcode)  # 从注册表获取节点定义
         if nodeDef is None:  # 如果找不到节点定义
             errorMsg = f"未知的节点类型: {opcode}"  # 构造错误信息
             await onError(nodeId, errorMsg)  # 发送错误
             break  # 终止执行
 
-        func = nodeDef.get("func", None)  # 获取节点的func
+        func = nodeDef.get("func")  # 获取节点的func
         if func is None:  # 如果没有func
             errorMsg = f"节点{opcode}没有定义执行函数"  # 构造错误信息
             await onError(nodeId, errorMsg)  # 发送错误
             break  # 终止执行
 
-        compute = func.get("compute", None)  # 获取compute函数
+        compute = func.get("compute")  # 获取compute函数
         if compute is None:  # 如果没有compute函数
             errorMsg = f"节点{opcode}没有定义compute函数"  # 构造错误信息
             await onError(nodeId, errorMsg)  # 发送错误
@@ -141,7 +143,7 @@ async def run(blueprint, onMessage, onError):
 
         try:  # 尝试执行节点
             nodeInputs = ctx.getNodeInputs(nodeId)  # 获取节点的输入值
-            layer = ctx.layers.get(nodeId, None)  # 获取已构建的层
+            layer = ctx.layers.get(nodeId)  # 获取已构建的层
             result = compute(nodeInputs, params, layer, ctx)  # 调用compute函数执行计算
             ctx.results[nodeId] = result  # 存入context.results
             await onMessage(nodeId, result)  # 发送节点执行结果
