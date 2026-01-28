@@ -1,114 +1,172 @@
 """
-基础节点组
+nodes/base.py - 基础节点组
 
-提供基础的输入/输出节点。
+提供基础的输入/输出/调试节点
 """
 
-from typing import Any, Dict, List, Optional
-
-from decorators import category, node
-from nodes import create_passthrough_node
+from decorators import category, node  # 从装饰器模块导入category和node装饰器
 
 
 # ==================== 分类定义 ====================
 
-@category(
-    id="basic",
-    label="基础",
-    color="#8B92E5",
-    icon="base64"
+category(  # 调用category注册分类
+    id="basic",  # 分类唯一标识
+    label="基础",  # 分类显示名称
+    color="#8B92E5",  # 分类颜色
+    icon="",  # 分类图标
 )
-def basic_category():
-    pass
 
 
 # ==================== 节点定义 ====================
 
-@node(
-    opcode="input",
-    label="输入",
-    outputs=["out"],
-    params={"输出维度": [1, 10]}
+@node(  # 使用node装饰器注册节点
+    opcode="input",  # 节点操作码，唯一标识
+    label="输入",  # 节点显示名称
+    ports={"in": [], "out": ["out"]},  # 输入输出端口定义
+    params={"输出维度": [1, 10]},  # 节点参数定义
 )
-def input_node():
+def inputNode():
     """
-    输入节点
-
-    这是蓝图的入口点，不执行任何计算。
-    引擎会直接透传 initial_inputs 中的数据。
+    输入节点 - 蓝图的入口点
     """
-    def infer(input_shapes: Dict[str, List[int]], params: Dict) -> Dict[str, List[int]]:
-        return {"out": params.get("输出维度", [1, 10])}
 
-    def build(input_shapes: Dict[str, List[int]], params: Dict) -> None:
-        return None
+    def infer(inputShapes, params):
+        """
+        形状推断函数 - 根据参数返回输出形状
+        """
+        return {"out": params.get("输出维度", [1, 10])}  # 返回参数中定义的输出维度
 
-    def compute(x: Any, layer: Any) -> None:
-        # 输入节点不执行计算，由引擎透传数据
-        return None
+    def build(shape, params):
+        """
+        构建层函数 - 输入节点不需要构建层
+        """
+        return None  # 输入节点不需要层
 
-    return infer, build, compute
+    def compute(inputs, layer):
+        """
+        计算函数 - 输入节点直接返回空，由引擎透传数据
+        """
+        return {"out": None}  # 输入节点不执行计算，返回空输出
+
+    return {
+        "infer": infer,
+        "build": build,
+        "compute": compute,
+    }  # 返回包含三个函数的字典
 
 
-@node(
-    opcode="output",
-    label="输出",
-    inputs=["in"],
-    params={}
+@node(  # 使用node装饰器注册节点
+    opcode="output",  # 节点操作码，唯一标识
+    label="输出",  # 节点显示名称
+    ports={"in": ["in"], "out": []},  # 输入输出端口定义
+    params={},  # 节点参数定义
 )
-def output_node():
+def outputNode():
     """
-    输出节点
-
-    这是蓝图的出口点，直接透传输入数据。
+    输出节点 - 蓝图的出口点，直接透传输入数据
     """
-    return create_passthrough_node(output_port="out")
+
+    def infer(inputShapes, params):
+        """
+        形状推断函数 - 透传输入形状
+        """
+        return {"out": inputShapes.get("in")}  # 透传输入的形状
+
+    def build(shape, params):
+        """
+        构建层函数 - 输出节点不需要构建层
+        """
+        return None  # 输出节点不需要层
+
+    def compute(inputs, layer):
+        """
+        计算函数 - 直接透传输入数据
+        """
+        return {"out": inputs.get("in")}  # 透传输入数据
+
+    return {
+        "infer": infer,
+        "build": build,
+        "compute": compute,
+    }  # 返回包含三个函数的字典
 
 
-@node(
-    opcode="constant",
-    label="常量",
-    outputs=["out"],
-    params={"value": 0}
+@node(  # 使用node装饰器注册节点
+    opcode="constant",  # 节点操作码，唯一标识
+    label="常量",  # 节点显示名称
+    ports={"in": [], "out": ["out"]},  # 输入输出端口定义
+    params={"value": 0},  # 节点参数定义
 )
-def constant_node():
-    """常量节点"""
-    import torch
+def constantNode():
+    """
+    常量节点 - 输出一个固定值
+    """
+    import torch  # 导入torch
 
-    def infer(input_shapes: Dict[str, List[int]], params: Dict) -> Dict[str, List[int]]:
-        return {"out": [1]}
+    def infer(inputShapes, params):
+        """
+        形状推断函数 - 常量输出形状为[1]
+        """
+        return {"out": [1]}  # 常量形状固定为[1]
 
-    def build(input_shapes: Dict[str, List[int]], params: Dict) -> Any:
-        value = params.get("value", 0)
-        return torch.tensor([value], dtype=torch.float32)
+    def build(shape, params):
+        """
+        构建层函数 - 创建常量张量
+        """
+        value = params.get("value", 0)  # 获取常量值
+        return torch.tensor([value], dtype=torch.float32)  # 返回张量
 
-    def compute(x: Any, layer: Any) -> Any:
-        return layer
+    def compute(inputs, layer):
+        """
+        计算函数 - 直接返回构建的常量张量
+        """
+        return {"out": layer}  # 返回层（即常量张量）
 
-    return infer, build, compute
+    return {
+        "infer": infer,
+        "build": build,
+        "compute": compute,
+    }  # 返回包含三个函数的字典
 
 
-@node(
-    opcode="debug",
-    label="调试输出",
-    inputs=["x"],
-    outputs=["out"],
-    params={"label": "debug"}
+@node(  # 使用node装饰器注册节点
+    opcode="debug",  # 节点操作码，唯一标识
+    label="调试输出",  # 节点显示名称
+    ports={"in": ["x"], "out": ["out"]},  # 输入输出端口定义
+    params={"label": "debug"},  # 节点参数定义
 )
-def debug_node():
+def debugNode():
     """
-    调试节点
-
-    打印输入数据并透传。用于调试蓝图执行。
+    调试节点 - 打印输入数据并透传
     """
-    def infer(input_shapes: Dict[str, List[int]], params: Dict) -> Dict[str, List[int]]:
-        return {"out": input_shapes.get("x")}
 
-    def build(input_shapes: Dict[str, List[int]], params: Dict) -> str:
-        return params.get("label", "debug")
+    def infer(inputShapes, params):
+        """
+        形状推断函数 - 透传输入形状
+        """
+        return {"out": inputShapes.get("x")}  # 透传x的形状
 
-    def compute(x: Any, layer: str) -> Any:
-        print(f"🔍 [{layer}] shape={x.shape if hasattr(x, 'shape') else 'N/A'}, dtype={x.dtype if hasattr(x, 'dtype') else type(x)}")
-        return x
+    def build(shape, params):
+        """
+        构建层函数 - 返回调试标签
+        """
+        return params.get("label", "debug")  # 返回标签字符串
 
-    return infer, build, compute
+    def compute(inputs, layer):
+        """
+        计算函数 - 打印调试信息并透传
+        """
+        x = inputs.get("x")  # 获取输入x
+        label = layer  # 层就是标签字符串
+        
+        shapeStr = x.shape if hasattr(x, "shape") else "N/A"  # 获取形状字符串
+        dtypeStr = x.dtype if hasattr(x, "dtype") else type(x)  # 获取类型字符串
+        print(f"🔍 [{label}] shape={shapeStr}, dtype={dtypeStr}")  # 打印调试信息
+        
+        return {"out": x}  # 透传x
+
+    return {
+        "infer": infer,
+        "build": build,
+        "compute": compute,
+    }  # 返回包含三个函数的字典

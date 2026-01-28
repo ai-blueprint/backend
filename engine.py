@@ -3,7 +3,7 @@ engine.py - 蓝图执行引擎
 
 用法：
     import engine
-    await engine.run(blueprint, inputs, onMessage, onError)  # 运行蓝图
+    await engine.run(blueprint, onMessage, onError)  # 运行蓝图
 
 示例：
     async def onMsg(nodeId, result):
@@ -20,42 +20,6 @@ from context import Context  # 执行上下文类
 
 
 loader.loadAll()  # 初始化时加载所有节点模块，装饰器会自动注册节点
-
-
-def getFunc(func, name):
-    """
-    从func中获取指定函数，兼容元组和字典两种格式
-
-    用法：
-        infer = getFunc(func, "infer")  # 获取infer函数
-        build = getFunc(func, "build")  # 获取build函数
-        compute = getFunc(func, "compute")  # 获取compute函数
-
-    示例：
-        # 字典格式：{"infer": fn1, "build": fn2, "compute": fn3}
-        getFunc({"infer": fn1}, "infer")  # 返回fn1
-
-        # 元组格式：(infer, build, compute)
-        getFunc((fn1, fn2, fn3), "infer")  # 返回fn1
-        getFunc((fn1, fn2, fn3), "build")  # 返回fn2
-        getFunc((fn1, fn2, fn3), "compute")  # 返回fn3
-    """
-    if func is None:  # 如果func为空
-        return None  # 返回None
-
-    if isinstance(func, dict):  # 如果func是字典格式
-        return func.get(name)  # 用get方法获取对应函数
-
-    if isinstance(func, tuple):  # 如果func是元组格式
-        indexMap = {"infer": 0, "build": 1, "compute": 2}  # 定义名称到索引的映射
-        index = indexMap.get(name)  # 获取对应的索引
-        if index is None:  # 如果名称不在映射中
-            return None  # 返回None
-        if index >= len(func):  # 如果索引超出元组长度
-            return None  # 返回None
-        return func[index]  # 返回元组中对应位置的函数
-
-    return None  # 其他情况返回None
 
 
 async def run(blueprint, onMessage, onError):
@@ -94,7 +58,6 @@ async def run(blueprint, onMessage, onError):
         params = node.get("data", {}).get("params", {})  # 获取节点参数
 
         nodeDef = registry.nodes.get(opcode)  # 从注册表获取节点定义
-        print(f"全部节点: {registry.nodes}，opcode: {opcode}，节点定义: {nodeDef}")  # 打印节点定义
         if nodeDef is None:  # 如果找不到节点定义
             print(f"节点{nodeId}未注册")
             continue  # 跳过这个节点
@@ -104,7 +67,7 @@ async def run(blueprint, onMessage, onError):
             print(f"节点{nodeId}没有func")
             continue  # 跳过这个节点
 
-        infer = getFunc(func, "infer")  # 获取infer函数（兼容元组和字典格式）
+        infer = func.get("infer")  # 获取infer函数
         if infer is None:  # 如果没有infer函数
             print(f"节点{nodeId}没有infer函数")
             continue  # 跳过形状推断
@@ -139,7 +102,7 @@ async def run(blueprint, onMessage, onError):
         if func is None:  # 如果没有func
             continue  # 跳过这个节点
 
-        build = getFunc(func, "build")  # 获取build函数（兼容元组和字典格式）
+        build = func.get("build")  # 获取build函数
         if build is None:  # 如果没有build函数
             continue  # 跳过层构建
 
@@ -155,7 +118,6 @@ async def run(blueprint, onMessage, onError):
     for nodeId in sortedIds:  # 按拓扑顺序遍历节点
         node = nodeMap.get(nodeId)  # 获取节点数据
         opcode = node.get("data", {}).get("opcode")  # 从data中获取opcode（如input、output、debug）
-        params = node.get("data", {}).get("params", {})  # 获取节点参数
 
         nodeDef = registry.nodes.get(opcode)  # 从注册表获取节点定义
         if nodeDef is None:  # 如果找不到节点定义
@@ -169,7 +131,7 @@ async def run(blueprint, onMessage, onError):
             await onError(nodeId, errorMsg)  # 发送错误
             break  # 终止执行
 
-        compute = getFunc(func, "compute")  # 获取compute函数（兼容元组和字典格式）
+        compute = func.get("compute")  # 获取compute函数
         if compute is None:  # 如果没有compute函数
             errorMsg = f"节点{opcode}没有定义compute函数"  # 构造错误信息
             await onError(nodeId, errorMsg)  # 发送错误
@@ -178,7 +140,7 @@ async def run(blueprint, onMessage, onError):
         try:  # 尝试执行节点
             nodeInputs = ctx.getNodeInputs(nodeId)  # 获取节点的输入值
             layer = ctx.layers.get(nodeId)  # 获取已构建的层
-            result = compute(nodeInputs, params, layer, ctx)  # 调用compute函数执行计算
+            result = compute(nodeInputs, layer)  # 调用compute函数执行计算（inputs, layer）
             ctx.results[nodeId] = result  # 存入context.results
             await onMessage(nodeId, result)  # 发送节点执行结果
             print(f"节点{nodeId}执行完成")  # 打印执行结果

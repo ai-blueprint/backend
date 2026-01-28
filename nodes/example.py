@@ -7,7 +7,7 @@ nodes/example.py - 示例节点定义
 """
 
 from decorators import category, node  # 从装饰器模块导入category和node装饰器
-import nn  # 从nn模块导入神经网络层
+from torch import nn  # 导入torch.nn模块
 
 # 定义一个示例分类
 category(  # 调用category装饰器注册分类
