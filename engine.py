@@ -59,7 +59,6 @@ async def run(blueprint, onMessage, onError):
 
         nodeDef = registry.nodes.get(opcode)  # 从注册表获取节点定义
         print(f"全部节点: {registry.nodes}，opcode: {opcode}，节点定义: {nodeDef}")  # 打印节点定义
-        breakpoint()
         if nodeDef is None:  # 如果找不到节点定义
             print(f"节点{nodeId}未注册")
             continue  # 跳过这个节点

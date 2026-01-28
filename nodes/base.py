@@ -54,7 +54,6 @@ def input_node():
     opcode="output",
     label="输出",
     inputs=["in"],
-    outputs=["out"],
     params={}
 )
 def output_node():
