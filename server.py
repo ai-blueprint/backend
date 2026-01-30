@@ -81,28 +81,21 @@ async def handleMessage(ws, message):
         return  # 处理完毕，返回
 
     elif type == "runBlueprint":  # 如果是请求运行蓝图
-    
         blueprint = data["data"].get("blueprint")  # 提取蓝图数据
         print(f"收到运行蓝图请求: {blueprint}")  # 收到运行蓝图请求: None
 
         async def onMessage(nodeId, result):  # 定义节点执行完成的回调
-            await sendMessage(
-                ws, "nodeResult", id, {"nodeId": nodeId, "result": result}
-            )  # 发送节点结果
+            await sendMessage(ws, "nodeResult", id, {"nodeId": nodeId, "result": result})  # 发送节点结果
 
         async def onError(nodeId, error):  # 定义节点执行出错的回调
-            await sendError(
-                ws, "nodeError", id, {"nodeId": nodeId, "error": error}
-            )  # 发送节点错误
+            await sendError(ws, "nodeError", id, {"nodeId": nodeId, "error": error})  # 发送节点错误
 
         await engine.run(blueprint, onMessage, onError)  # 调用引擎运行蓝图
         await sendMessage(ws, "blueprintComplete", id, {})  # 发送蓝图执行完成消息
         return  # 处理完毕，返回
 
     else:  # 如果是未知消息类型
-        await sendError(
-            ws, "unknown", id, f"未知消息类型：{type}"
-        )  # 发送未知消息类型的错误消息
+        await sendError(ws, "unknown", id, f"未知消息类型：{type}")  # 发送未知消息类型的错误消息
         return
 
 
@@ -146,9 +139,7 @@ def start(host="localhost", port=8765):
     print(f"WebSocket服务启动中... ws://{host}:{port}")  # 打印启动信息
 
     async def main():  # 定义异步主函数
-        async with websockets.serve(
-            handleConnection, host, port
-        ):  # 创建WebSocket服务器
+        async with websockets.serve(handleConnection, host, port):  # 创建WebSocket服务器
             print(f"WebSocket服务已启动: ws://{host}:{port}")  # 打印启动成功信息
             await asyncio.Future()  # 保持运行，永不结束
 
