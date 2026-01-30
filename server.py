@@ -25,10 +25,6 @@ clients = set()  # 全局变量：已连接的前端客户端集合，用set存�
 async def sendMessage(ws, type, id, data):
     """
     发送消息给前端
-
-    用法：
-        await sendMessage(ws, "nodeResult", "msg123", {"value": 42})
-
     示例：
         await sendMessage(websocket, "getNodes", "req1", nodesData)  # 发送节点数据
         await sendMessage(websocket, "nodeComplete", "req2", result)  # 发送节点执行结果
@@ -46,12 +42,7 @@ async def sendMessage(ws, type, id, data):
 async def sendError(ws, type, id, error):
     """
     发送错误消息给前端
-
-    用法：
-        await sendError(ws, "runBlueprint", "msg123", "节点执行失败")
-
-    示例：
-        await sendError(websocket, "runBlueprint", "req1", str(e))  # 发送运行错误
+    用法：await sendError(ws, "runBlueprint", "msg123", "节点执行失败")
     """
     msg = {}  # 创建空字典准备装错误消息
     msg["type"] = type  # 消息类型
@@ -63,13 +54,7 @@ async def sendError(ws, type, id, error):
 
 async def handleMessage(ws, message):
     """
-    处理收到的消息
-
-    用法：
-        await handleMessage(ws, '{"type": "getNodes", "id": "req1"}')
-
-    示例：
-        await handleMessage(websocket, jsonString)  # 解析并处理前端发来的消息
+    用法：await handleMessage(ws, '{"type": "getNodes", "id": "req1"}')
     """
     data = json.loads(message)  # 把JSON字符串解析成字典
     type = data.get("type", "")  # 提取消息类型，默认空字符串
@@ -100,15 +85,6 @@ async def handleMessage(ws, message):
 
 
 async def handleConnection(ws):
-    """
-    处理WebSocket连接
-
-    用法：
-        这是WebSocket服务器的连接处理函数，由websockets库自动调用
-
-    示例：
-        websockets.serve(handleConnection, host, port)  # 注册为连接处理器
-    """
     clients.add(ws)  # 将新连接的前端加入clients集合
     print(f"前端已连接，当前连接数: {len(clients)}")  # 打印连接信息
 
@@ -123,19 +99,6 @@ async def handleConnection(ws):
 
 
 def start(host="localhost", port=8765):
-    """
-    启动WebSocket服务
-
-    用法：
-        start()  # 使用默认参数启动
-        start("0.0.0.0", 9000)  # 指定host和port
-        start(host="0.0.0.0")  # 只指定host
-        start(port=9000)  # 只指定port
-
-    示例：
-        start()  # 在localhost:8765启动
-        start("0.0.0.0", 8080)  # 在所有网卡的8080端口启动
-    """
     print(f"WebSocket服务启动中... ws://{host}:{port}")  # 打印启动信息
 
     async def main():  # 定义异步主函数
