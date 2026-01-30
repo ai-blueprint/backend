@@ -57,15 +57,15 @@ async def handleMessage(ws, message):
     用法：await handleMessage(ws, '{"type": "getNodes", "id": "req1"}')
     """
     data = json.loads(message)  # 把JSON字符串解析成字典
-    type = data.get("type", "")  # 提取消息类型，默认空字符串
+    msg_type = data.get("type", "")  # 提取消息类型，默认空字符串
     id = data.get("id", "")  # 提取消息ID，默认空字符串
 
-    if type == "getRegistry":  # 如果是请求节点注册表
+    if msg_type == "getRegistry":  # 如果是请求节点注册表
         result = registry.getAllForFrontend()  # 调用registry获取前端格式的节点数据
-        await sendMessage(ws, type, id, result)  # 发送响应给前端
+        await sendMessage(ws, msg_type, id, result)  # 发送响应给前端
         return  # 处理完毕，返回
 
-    elif type == "runBlueprint":  # 如果是请求运行蓝图
+    elif msg_type == "runBlueprint":  # 如果是请求运行蓝图
         blueprint = data["data"].get("blueprint")  # 提取蓝图数据
         print(f"收到运行蓝图请求: {blueprint}")  # 收到运行蓝图请求: None
 
@@ -80,7 +80,7 @@ async def handleMessage(ws, message):
         return  # 处理完毕，返回
 
     else:  # 如果是未知消息类型
-        await sendError(ws, "unknown", id, f"未知消息类型：{type}")  # 发送未知消息类型的错误消息
+        await sendError(ws, "unknown", id, f"未知消息类型：{msg_type}")  # 发送未知消息类型的错误消息
         return
 
 

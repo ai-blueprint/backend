@@ -1,16 +1,16 @@
 """
 nodes/base.py - 基础节点组
 
-提供基础的输入/输出/调试节点
+提供基础的输入/输出/调试/常量节点
 """
 
-from decorators import category, node  # 从装饰器模块导入category和node装饰器
-import torch  # 导入torch模块
-from torch import nn  # 导入torch.nn模块
+import torch  # 导入torch用于张量操作
+from registry import category, node, BaseNode  # 从registry导入装饰器和基类
+
 
 # ==================== 分类定义 ====================
 
-category(  # 调用category注册分类
+category(  # 注册基础分类
     id="basic",  # 分类唯一标识
     label="基础",  # 分类显示名称
     color="#8B92E5",  # 分类颜色
@@ -21,159 +21,66 @@ category(  # 调用category注册分类
 # ==================== 节点定义 ====================
 
 
-@node(  # 使用node装饰器注册节点
-    opcode="input",  # 节点操作码，唯一标识
+@node(  # 注册输入节点
+    opcode="input",  # 节点操作码
     label="输入",  # 节点显示名称
-    ports={"in": [], "out": ["out"]},  # 输入输出端口定义
-    params={"输出形状": [2, 4, 6]},  # 节点参数定义
+    ports={"input": {}, "output": {"out": "输出"}},  # 端口定义，输入节点没有输入端口
+    params={"输出维度": {"label": "输出维度", "type": "list", "default": [1, 10]}},  # 参数定义
 )
-def inputNode():
-    """
-    输入节点 - 蓝图的入口点
-    """
+class InputNode(BaseNode):  # 继承BaseNode
+    def build(self):  # 构建方法，在__init__时自动调用
+        shape = self.params.get("输出维度", [1, 10])  # 获取输出维度参数
+        self.data = torch.rand(*shape)  # 预生成随机张量
 
-    def infer(inputShapes, params):
-        """
-        形状推断函数 - 根据参数返回输出形状
-        """
-        return {"out": params["输出形状"]}  # 返回参数中定义的输出形状
-
-    def build(shape, params):
-        """
-        构建层函数 - 输入节点不需要构建层
-        """
-        # 这里把layer作为随机数
-        # 首先就是将params["输出形状"]转换成tensor的维度，因为params["输出形状"]是数组
-        dim = torch.Size(params["输出形状"])
-        layer = torch.rand(dim)  # 生成随机数
-        return layer
-
-    def compute(inputs, layer):
-        """
-        计算函数 - 输入节点直接返回空，由引擎透传数据
-        """
-        # 根据输出形状来生成随机数据
-        return {"out": layer}  
-
-    return {
-        "infer": infer,
-        "build": build,
-        "compute": compute,
-    }  # 返回包含三个函数的字典
+    def compute(self, input):  # 计算方法
+        return {"out": self.data}  # 返回预生成的张量
 
 
-@node(  # 使用node装饰器注册节点
-    opcode="output",  # 节点操作码，唯一标识
+@node(  # 注册输出节点
+    opcode="output",  # 节点操作码
     label="输出",  # 节点显示名称
-    ports={"in": ["in"], "out": []},  # 输入输出端口定义
-    params={},  # 节点参数定义
+    ports={"input": {"in": "输入"}, "output": {}},  # 端口定义，输出节点没有输出端口
+    params={},  # 无参数
 )
-def outputNode():
-    """
-    输出节点 - 蓝图的出口点，直接透传输入数据
-    """
+class OutputNode(BaseNode):  # 继承BaseNode
+    def build(self):  # 构建方法
+        pass  # 输出节点不需要构建任何东西
 
-    def infer(inputShapes, params):
-        """
-        形状推断函数 - 透传输入形状
-        """
-        return {"out": inputShapes.get("in")}  # 透传输入的形状
-
-    def build(shape, params):
-        """
-        构建层函数 - 输出节点不需要构建层
-        """
-        return None  # 输出节点不需要层
-
-    def compute(inputs, layer):
-        """
-        计算函数 - 直接透传输入数据
-        """
-        return {"out": inputs.get("in")}  # 透传输入数据
-
-    return {
-        "infer": infer,
-        "build": build,
-        "compute": compute,
-    }  # 返回包含三个函数的字典
+    def compute(self, input):  # 计算方法
+        value = input.get("in", None)  # 获取输入值
+        print(f"[Output] 最终输出: {value}")  # 打印最终结果
+        return {}  # 返回空字典，没有输出端口
 
 
-@node(  # 使用node装饰器注册节点
-    opcode="constant",  # 节点操作码，唯一标识
+@node(  # 注册常量节点
+    opcode="constant",  # 节点操作码
     label="常量",  # 节点显示名称
-    ports={"in": [], "out": ["out"]},  # 输入输出端口定义
-    params={"value": 0},  # 节点参数定义
+    ports={"input": {}, "output": {"out": "输出"}},  # 端口定义
+    params={"value": {"label": "常量值", "type": "float", "default": 0.0}},  # 参数定义
 )
-def constantNode():
-    """
-    常量节点 - 输出一个固定值
-    """
-    import torch  # 导入torch
+class ConstantNode(BaseNode):  # 继承BaseNode
+    def build(self):  # 构建方法
+        value = self.params.get("value", 0.0)  # 获取常量值
+        self.tensor = torch.tensor([value], dtype=torch.float32)  # 创建张量
 
-    def infer(inputShapes, params):
-        """
-        形状推断函数 - 常量输出形状为[1]
-        """
-        return {"out": [1]}  # 常量形状固定为[1]
-
-    def build(shape, params):
-        """
-        构建层函数 - 创建常量张量
-        """
-        value = params.get("value", 0)  # 获取常量值
-        return torch.tensor([value], dtype=torch.float32)  # 返回张量
-
-    def compute(inputs, layer):
-        """
-        计算函数 - 直接返回构建的常量张量
-        """
-        return {"out": layer}  # 返回层（即常量张量）
-
-    return {
-        "infer": infer,
-        "build": build,
-        "compute": compute,
-    }  # 返回包含三个函数的字典
+    def compute(self, input):  # 计算方法
+        return {"out": self.tensor}  # 返回常量张量
 
 
-@node(  # 使用node装饰器注册节点
-    opcode="debug",  # 节点操作码，唯一标识
+@node(  # 注册调试节点
+    opcode="debug",  # 节点操作码
     label="调试输出",  # 节点显示名称
-    ports={"in": ["x"], "out": ["out"]},  # 输入输出端口定义
-    params={"label": "debug"},  # 节点参数定义
+    ports={"input": {"x": "输入"}, "output": {"out": "输出"}},  # 端口定义
+    params={"label": {"label": "标签", "type": "str", "default": "debug"}},  # 参数定义
 )
-def debugNode():
-    """
-    调试节点 - 打印输入数据并透传
-    """
+class DebugNode(BaseNode):  # 继承BaseNode
+    def build(self):  # 构建方法
+        self.label = self.params.get("label", "debug")  # 获取标签参数
 
-    def infer(inputShapes, params):
-        """
-        形状推断函数 - 透传输入形状
-        """
-        return {"out": inputShapes.get("x")}  # 透传x的形状
-
-    def build(shape, params):
-        """
-        构建层函数 - 返回调试标签
-        """
-        return params.get("label", "debug")  # 返回标签字符串
-
-    def compute(inputs, layer):
-        """
-        计算函数 - 打印调试信息并透传
-        """
-        x = inputs.get("x")  # 获取输入x
-        label = layer  # 层就是标签字符串
-
-        shapeStr = x.shape if hasattr(x, "shape") else "N/A"  # 获取形状字符串
-        dtypeStr = x.dtype if hasattr(x, "dtype") else type(x)  # 获取类型字符串
-        print(f"🔍 [{label}] shape={shapeStr}, dtype={dtypeStr}")  # 打印调试信息
-
-        return {"out": x}  # 透传x
-
-    return {
-        "infer": infer,
-        "build": build,
-        "compute": compute,
-    }  # 返回包含三个函数的字典
+    def compute(self, input):  # 计算方法
+        x = input.get("x", None)  # 获取输入x
+        if x is not None and hasattr(x, "shape"):  # 如果x是张量
+            print(f"[{self.label}] shape={x.shape}, dtype={x.dtype}")  # 打印形状和类型
+        else:  # 如果x不是张量
+            print(f"[{self.label}] value={x}, type={type(x)}")  # 打印值和类型
+        return {"out": x}  # 透传输入
