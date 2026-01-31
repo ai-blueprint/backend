@@ -110,12 +110,11 @@ async def run(blueprint, onMessage, onError):  # 异步运行蓝图的主函数
 
     print("蓝图执行完成")  # 打印完成信息
 
-if __name__ == "__main__":
-    # 导入blueprint_data_example数据，用于测试，这个是个字典，包含nodes和edges
-    from blueprint_data_example import blueprintData
-    
-    async def onMsg(nodeId, result):
-        print(f"节点{nodeId}执行完成: {result}")
-    async def onErr(nodeId, error):
-        print(f"节点{nodeId}执行出错: {error}")
-    run(blueprintData, onMsg, onErr)
+# if __name__ == "__main__":
+#     # 导入blueprint_data_example数据，用于测试，这个是个字典，包含nodes和edges
+
+#     async def onMsg(nodeId, result):
+#         print(f"节点{nodeId}执行完成: {result}")
+#     async def onErr(nodeId, error):
+#         print(f"节点{nodeId}执行出错: {error}")
+#     run(blueprintData, onMsg, onErr)
