@@ -25,7 +25,7 @@ category(  # 注册基础分类
     opcode="input",  # 节点操作码
     label="输入",  # 节点显示名称
     ports={"input": {}, "output": {"out": ""}},  # 端口定义，输入节点没有输入端口
-    params={"out_shape": {"label": "输出维度", "type": "list", "default": [2, 4, 10]}},  # 参数定义
+    params={"out_shape": {"label": "输出维度", "type": "list", "value": [2, 4, 10]}},  # 参数定义
 )
 class InputNode(BaseNode):  # 继承BaseNode
     def compute(self, input):  # 计算方法

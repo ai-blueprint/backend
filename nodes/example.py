@@ -20,12 +20,12 @@ category(  # 调用category装饰器注册分类
     label="示例节点",  # 节点显示名称
     ports={"input": {"x": "输入1", "y": "输入2"}, "output": {"result": "输出"}},  # 输入输出端口定义
     params={
-        "int_param": {"label": "整数参数示例", "type": "int", "default": 256, "range": [0, 1024]},  # 整数参数示例，range可选
-        "float_param": {"label": "浮点数参数示例", "type": "float", "default": 0.5, "range": [0, 1]},  # 浮点数参数示例，range可选
-        "bool_param": {"label": "布尔参数示例", "type": "bool", "default": True},  # 布尔参数示例
-        "str_param": {"label": "字符串参数示例", "type": "str", "default": "默认字符串"},  # 字符串参数示例
-        "list_param": {"label": "列表参数示例", "type": "list", "default": [1, 2, 3]},  # 列表参数示例，可以用于形状定义
-        "enum_param": {"label": "选项参数示例", "type": "enum", "default": "option1", "options": {"option1": "选项1", "option2": "选项2", "option3": "选项3"}},  # 选项参数示例
+        "int_param": {"label": "整数参数示例", "type": "int", "value": 256, "range": [0, 1024]},  # 整数参数示例，range可选
+        "float_param": {"label": "浮点数参数示例", "type": "float", "value": 0.5, "range": [0, 1]},  # 浮点数参数示例，range可选
+        "bool_param": {"label": "布尔参数示例", "type": "bool", "value": True},  # 布尔参数示例
+        "str_param": {"label": "字符串参数示例", "type": "str", "value": "默认字符串"},  # 字符串参数示例
+        "list_param": {"label": "列表参数示例", "type": "list", "value": [1, 2, 3]},  # 列表参数示例，可以用于形状定义
+        "enum_param": {"label": "选项参数示例", "type": "enum", "value": "option1", "options": {"option1": "选项1", "option2": "选项2", "option3": "选项3"}},  # 选项参数示例
     },  # 节点参数定义
 )
 class ExampleNode(BaseNode):

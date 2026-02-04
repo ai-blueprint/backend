@@ -18,12 +18,6 @@ def registerNode(opcode, label, ports, params, cls):
     node["opcode"] = opcode
     node["label"] = label
     node["ports"] = ports
-    # 把params里面的所有param的default键换成value键
-    for param in params.values():
-        if "default" in param:
-            param["value"] = param["default"]
-            del param["default"]
-
     node["params"] = params
     node["cls"] = cls
     nodes[opcode] = node

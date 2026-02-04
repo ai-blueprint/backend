@@ -1,0 +1,226 @@
+文件与具体逻辑
+	main.py
+		启动服务
+			导入server模块
+			调用 server.start() 启动WebSocket服务，默认localhost:8765
+	server.py
+		全局变量
+			clients：已连接的前端客户端集合，用set存储
+		sendMessage(ws, type, id, data)
+			创建消息字典 {type, id, data}
+			转成JSON字符串
+			通过WebSocket发送给前端
+		sendError(ws, type, id, error)
+			创建错误消息字典 {type, id, error}
+			转成JSON字符串
+			通过WebSocket发送给前端
+		handleMessage(ws, message)
+			解析JSON消息
+			提取type和id
+			如果type是getRegistry
+				调用 registry.getAllForFrontend() 获取节点注册表
+				发送响应给前端
+			如果type是runBlueprint
+				提取blueprint数据
+				定义onMessage回调：发送节点执行结果
+				定义onError回调：发送节点执行错误
+				调用 engine.run(blueprint, onMessage, onError) 运行蓝图
+				发送蓝图执行完成消息
+			如果是未知类型
+				发送未知消息类型错误
+		handleConnection(ws)
+			将新连接加入clients集合
+			打印连接信息
+			循环接收消息
+				调用handleMessage处理每条消息
+			连接断开时从clients移除
+			打印断开信息
+		start(host, port)
+			打印启动信息
+			定义异步主函数
+				创建WebSocket服务器，绑定handleConnection
+				打印启动成功信息
+				保持运行（await asyncio.Future()）
+			运行异步主函数
+	loader.py
+		importModule(filepath)
+			把Windows路径反斜杠替换成正斜杠
+			去掉.py后缀
+			把路径分隔符替换成点号，变成模块名格式
+			使用importlib动态导入模块
+		loadAll(folder)
+			获取nodes文件夹的绝对路径
+			遍历文件夹下所有文件
+				跳过__pycache__文件夹
+				跳过__init__.py文件
+				跳过非.py文件
+				拼接相对路径
+				调用importModule动态导入模块
+				打印加载信息
+	registry.py
+		全局变量
+			nodes：节点定义字典 {opcode: node}
+			categories：分类定义字典 {id: category}
+		registerCategory(id, label, color, icon)
+			创建分类字典 {label, color, icon, nodes: []}
+			存入categories
+		registerNode(opcode, label, ports, params, cls)
+			创建节点字典 {opcode, label, ports, params, cls}
+			把params里所有param的value键换成value键
+			存入nodes
+			把opcode加入最后一个分类的nodes列表
+		getAllForFrontend()
+			构建返回数据 {categories, nodes}
+			遍历nodes，去掉cls字段（不发给前端）
+			返回前端格式数据
+		createNode(opcode, nodeId, params)
+			检查opcode是否已注册
+			获取节点类cls
+			创建并返回节点实例
+		category(id, label, color, icon)
+			装饰器函数
+			调用registerCategory注册分类
+		node(opcode, label, ports, params)
+			装饰器函数
+			返回decorator
+				接收cls类
+				调用registerNode注册节点
+				返回cls
+		BaseNode类（继承nn.Module）
+			__init__(nodeId, params)
+				调用父类初始化
+				保存nodeId和params
+				调用build()方法
+			build()
+				空方法，子类可重写用于构建层
+			compute(input)
+				抛出NotImplementedError，子类必须实现
+			forward(input)
+				调用compute(input)
+				返回输出结果
+	engine.py
+		初始化
+			调用 loader.loadAll() 加载所有节点模块
+		run(blueprint, onMessage, onError)
+			从blueprint提取nodes和edges列表
+			调用 sort.topoSort(nodes, edges) 获取拓扑排序结果
+			打印排序结果
+			构建nodeMap：节点id到节点数据的映射
+			创建instances字典：存储节点实例
+			创建results字典：存储节点输出结果
+			阶段1：创建所有节点实例
+				按拓扑顺序遍历节点id
+					从nodeMap获取节点数据
+					提取data.opcode和data.params
+					检查opcode是否已注册
+					调用 registry.createNode(opcode, nodeId, params) 创建实例
+					存入instances字典
+					打印创建成功信息
+				如果创建失败
+					调用onError回调
+					终止执行
+			阶段2：按拓扑顺序执行所有节点
+				按拓扑顺序遍历节点id
+					从instances获取节点实例
+					收集当前节点的输入
+						遍历所有edges
+							如果edge.target是当前节点
+								从results获取源节点的对应端口值
+								存入inputValues字典
+					执行节点的compute方法
+						调用 instance.compute(inputValues)
+						存储输出结果到results
+						调用onMessage回调发送结果
+						打印执行成功信息
+					如果执行出错
+						调用onError回调
+						打印错误信息
+						终止执行
+			打印蓝图执行完成信息
+	sort.py
+		topoSort(nodes, edges)
+			创建入度表inDegree：记录每个节点的入度
+			创建邻接表adjacency：记录每个节点的后继节点列表
+			遍历所有节点
+				初始化入度为0
+				初始化邻接列表为空
+			遍历所有边
+				获取source和target
+				检查source和target是否存在
+				把target加入source的邻接列表
+				target的入度加1
+			创建队列queue
+			遍历所有节点
+				如果入度为0，加入队列
+			创建结果列表result
+			循环处理队列直到队列为空
+				弹出队首节点
+				加入结果列表
+				遍历当前节点的所有后继节点
+					后继节点入度减1
+					如果入度变成0，加入队列
+			如果结果数量不等于节点数量
+				抛出异常：存在循环依赖
+			返回排序结果数组
+	nodes/__init__.py
+		空的初始化文件
+		所有节点都在各自的文件中定义
+	nodes/base.py
+		导入torch和registry模块
+		注册基础分类
+			id="basic"
+			label="基础"
+			color="#8B92E5"
+			icon=""
+		@node InputNode（输入节点）
+			opcode="input"
+			label="输入"
+			ports={input: {}, output: {out: ""}}
+			params={out_shape: {label, type, value}}
+			compute(input)
+				获取out_shape参数
+				返回随机张量 {out: torch.rand(*shape)}
+		@node OutputNode（输出节点）
+			opcode="output"
+			label="输出"
+			ports={input: {in: ""}, output: {}}
+			params={}
+			compute(input)
+				获取输入值
+				打印最终输出
+				返回空字典
+		@node DebugNode（调试节点）
+			opcode="debug"
+			label="调试输出"
+			ports={input: {x: ""}, output: {out: ""}}
+			compute(input)
+				获取输入值x
+				打印形状和类型信息
+				透传输入返回 {out: x}
+	nodes/example.py
+		导入torch.nn和registry模块
+		注册示例分类
+			id="example_category"
+			label="示例节点定义"
+			color="#8992eb"
+			icon=""
+		@node ExampleNode（示例节点）
+			opcode="example_node"
+			label="示例节点"
+			ports={input: {x, y}, output: {result}}
+			params={
+				int_param: 整数参数示例，带range
+				float_param: 浮点数参数示例，带range
+				bool_param: 布尔参数示例
+				str_param: 字符串参数示例
+				list_param: 列表参数示例
+				enum_param: 选项参数示例，带options
+			}
+			build()
+				创建ReLU激活函数
+				创建Linear层，使用int_param和bool_param参数
+			compute(input)
+				获取输入x和y
+				通过Linear层处理 x+y
+				通过ReLU激活
+				返回 {result: 激活后的结果}
