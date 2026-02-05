@@ -13,12 +13,13 @@ def registerCategory(id, label, color, icon):
     categories[id] = category
 
 
-def registerNode(opcode, label, ports, params, cls):
+def registerNode(opcode, label, ports, params, description, cls):
     node = {}
     node["opcode"] = opcode
     node["label"] = label
     node["ports"] = ports
     node["params"] = params
+    node["description"] = description
     node["cls"] = cls
     nodes[opcode] = node
     categories[list(categories.keys())[-1]]["nodes"].append(opcode)
@@ -43,9 +44,9 @@ def category(id="", label="", color="#8992eb", icon=""):
     registerCategory(id, label, color, icon)
 
 
-def node(opcode="", label="", ports={}, params={}):
+def node(opcode="", label="", ports={}, params={}, description=""):
     def decorator(cls):
-        registerNode(opcode, label, ports, params, cls)
+        registerNode(opcode, label, ports, params, description, cls)
         return cls
 
     return decorator

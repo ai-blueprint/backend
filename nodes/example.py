@@ -9,7 +9,7 @@ from registry import category, node, BaseNode  # 从装饰器模块导入categor
 # 定义一个示例分类
 category(  # 调用category装饰器注册分类
     id="example_category",  # 分类唯一标识
-    label="示例节点定义",  # 分类显示名称
+    label="示例",  # 分类显示名称
     color="#8992eb",  # 分类颜色
     icon="",  # 分类图标，要求是base64格式字符串
 )
@@ -27,6 +27,7 @@ category(  # 调用category装饰器注册分类
         "list_param": {"label": "列表参数示例", "type": "list", "value": [1, 2, 3]},  # 列表参数示例，可以用于形状定义
         "enum_param": {"label": "选项参数示例", "type": "enum", "value": "option1", "options": {"option1": "选项1", "option2": "选项2", "option3": "选项3"}},  # 选项参数示例
     },  # 节点参数定义
+    description="示例节点，演示了不同类型的参数定义和使用",  # 节点描述
 )
 class ExampleNode(BaseNode):
     def build(self):
