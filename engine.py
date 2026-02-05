@@ -101,7 +101,7 @@ async def run(blueprint, onMessage, onError):  # 异步运行蓝图的主函数
         try:  # 尝试执行计算
             output = instance.compute(inputValues)  # 调用实例的compute方法
             results[nodeId] = output  # 存储输出结果
-            await onMessage(nodeId, output)  # 发送成功回调
+            await onMessage(nodeId, "正常")  # 发送成功回调
             print(f"节点执行成功: {nodeId}, 输出: {output}")  # 打印执行结果
         except Exception as e:  # 如果执行出错
             await onError(nodeId, f"执行出错: {str(e)}")  # 发送错误回调
@@ -109,12 +109,4 @@ async def run(blueprint, onMessage, onError):  # 异步运行蓝图的主函数
             return  # 终止执行
 
     print("蓝图执行完成")  # 打印完成信息
-
-# if __name__ == "__main__":
-#     # 导入blueprint_data_example数据，用于测试，这个是个字典，包含nodes和edges
-
-#     async def onMsg(nodeId, result):
-#         print(f"节点{nodeId}执行完成: {result}")
-#     async def onErr(nodeId, error):
-#         print(f"节点{nodeId}执行出错: {error}")
-#     run(blueprintData, onMsg, onErr)
+    return "运行正常"

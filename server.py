@@ -18,6 +18,7 @@ import websockets  # WebSocket库，用于创建WebSocket服务器
 
 import registry  # 节点注册表模块，用于获取节点信息
 import engine  # 蓝图执行引擎模块，用于运行蓝图
+import torch  # 导入torch用于张量操作
 
 clients = set()  # 全局变量：已连接的前端客户端集合，用set存储方便增删
 
@@ -75,8 +76,8 @@ async def handleMessage(ws, message):
         async def onError(nodeId, error):  # 定义节点执行出错的回调
             await sendError(ws, "nodeError", id, {"nodeId": nodeId, "error": error})  # 发送节点错误
 
-        await engine.run(blueprint, onMessage, onError)  # 调用引擎运行蓝图
-        await sendMessage(ws, "blueprintComplete", id, {})  # 发送蓝图执行完成消息
+        result = await engine.run(blueprint, onMessage, onError)  # 调用引擎运行蓝图
+        await sendMessage(ws, "blueprintComplete", id, {"result": result})  # 发送蓝图执行完成消息
         return  # 处理完毕，返回
 
     else:  # 如果是未知消息类型

@@ -29,8 +29,8 @@ category(  # 注册基础分类
 )
 class InputNode(BaseNode):  # 继承BaseNode
     def compute(self, input):  # 计算方法
-        shape = self.params.get("out_shape")  # 获取输出维度参数
-        return {"out": torch.rand(*shape)}  # 返回随机张量
+        shape = self.params.get("out_shape").get("value")  # 使用字典键访问
+        return {"out": torch.rand(shape)}  # 返回随机张量
 
 
 @node(  # 注册输出节点
@@ -54,5 +54,5 @@ class OutputNode(BaseNode):  # 继承BaseNode
 class DebugNode(BaseNode):  # 继承BaseNode
     def compute(self, input):  # 计算方法
         x = input.get("x")  # 获取输入值
-        print(f"调试输出：[{self.label}] shape={x.shape}, dtype={x.dtype}")  # 打印形状和类型
+        print(f"调试输出：shape={x.shape}, dtype={x.dtype}")  # 打印形状和类型
         return {"out": x}  # 透传输入
