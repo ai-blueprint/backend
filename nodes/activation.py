@@ -4,7 +4,6 @@ nodes/activation.py - 激活节点组
 提供常用激活函数节点：ReLU、Sigmoid、Tanh、Softmax、Softplus
 """
 
-import torch  # 导入torch用于张量操作
 import torch.nn as nn  # 导入nn模块用于构建层
 from registry import category, node, BaseNode  # 从registry导入装饰器和基类
 
@@ -26,8 +25,8 @@ category(  # 注册激活分类
     opcode="relu",  # 节点操作码
     label="ReLU",  # 节点显示名称
     ports={  # 端口定义
-        "input": {"x": "输入"},  # 一个输入端口
-        "output": {"out": "输出"},  # 一个输出端口
+        "input": {"x": ""},  # 一个输入端口
+        "output": {"out": ""},  # 一个输出端口
     },
     params={  # 参数定义
         "inplace": {"label": "原地操作", "type": "bool", "value": False},  # 是否原地修改
@@ -44,7 +43,7 @@ class ReLUNode(BaseNode):  # 继承BaseNode
     """
 
     def build(self):  # 构建层
-        self.relu = nn.ReLU(  # 创建ReLU层
+        self.relu = nn.ReLU(
             inplace=self.params["inplace"]["value"],  # 是否原地操作
         )
 
@@ -58,10 +57,9 @@ class ReLUNode(BaseNode):  # 继承BaseNode
     opcode="sigmoid",  # 节点操作码
     label="Sigmoid",  # 节点显示名称
     ports={  # 端口定义
-        "input": {"x": "输入"},  # 一个输入端口
-        "output": {"out": "输出"},  # 一个输出端口
+        "input": {"x": ""},  # 一个输入端口
+        "output": {"out": ""},  # 一个输出端口
     },
-    params={},  # 无参数
     description="压缩到0~1，常用于门控开关",  # 节点描述
 )
 class SigmoidNode(BaseNode):  # 继承BaseNode
@@ -86,8 +84,8 @@ class SigmoidNode(BaseNode):  # 继承BaseNode
     opcode="tanh",  # 节点操作码
     label="Tanh",  # 节点显示名称
     ports={  # 端口定义
-        "input": {"x": "输入"},  # 一个输入端口
-        "output": {"out": "输出"},  # 一个输出端口
+        "input": {"x": ""},  # 一个输入端口
+        "output": {"out": ""},  # 一个输出端口
     },
     params={},  # 无参数
     description="压缩到-1~1，中心对称",  # 节点描述
@@ -114,8 +112,8 @@ class TanhNode(BaseNode):  # 继承BaseNode
     opcode="softmax",  # 节点操作码
     label="Softmax",  # 节点显示名称
     ports={  # 端口定义
-        "input": {"x": "输入"},  # 一个输入端口
-        "output": {"out": "输出"},  # 一个输出端口
+        "input": {"x": ""},  # 一个输入端口
+        "output": {"out": ""},  # 一个输出端口
     },
     params={  # 参数定义
         "dim": {"label": "维度", "type": "int", "value": -1, "range": [-10, 10]},  # 沿哪个维度做softmax
@@ -147,8 +145,8 @@ class SoftmaxNode(BaseNode):  # 继承BaseNode
     opcode="softplus",  # 节点操作码
     label="Softplus",  # 节点显示名称
     ports={  # 端口定义
-        "input": {"x": "输入"},  # 一个输入端口
-        "output": {"out": "输出"},  # 一个输出端口
+        "input": {"x": ""},  # 一个输入端口
+        "output": {"out": ""},  # 一个输出端口
     },
     params={  # 参数定义
         "beta": {"label": "平滑系数", "type": "float", "value": 1.0, "range": [0.01, 100]},  # 控制平滑程度
