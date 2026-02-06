@@ -23,13 +23,13 @@ category(  # 注册运算分类
 
 @node(  # 注册add节点
     opcode="add",  # 节点操作码
-    label="加",  # 节点显示名称
+    label="加法",  # 节点显示名称
     ports={  # 端口定义
-        "input": {"x": "输入1", "y": "输入2"},  # 两个输入端口
-        "output": {"out": "输出"},  # 一个输出端口
+        "input": {"x": "", "y": ""},  # 两个输入端口
+        "output": {"out": ""},  # 一个输出端口
     },
     params={},  # 无参数
-    description="逐元素加法，残差连接核心",  # 节点描述
+    description="两个张量逐元素相加",  # 节点描述
 )
 class AddNode(BaseNode):  # 继承BaseNode
     """
@@ -49,13 +49,13 @@ class AddNode(BaseNode):  # 继承BaseNode
 
 @node(  # 注册sub节点
     opcode="sub",  # 节点操作码
-    label="减",  # 节点显示名称
+    label="减法",  # 节点显示名称
     ports={  # 端口定义
-        "input": {"x": "输入1", "y": "输入2"},  # 两个输入端口
-        "output": {"out": "输出"},  # 一个输出端口
+        "input": {"x": "", "y": ""},  # 两个输入端口
+        "output": {"out": ""},  # 一个输出端口
     },
     params={},  # 无参数
-    description="逐元素减法",  # 节点描述
+    description="两个张量逐元素相减",  # 节点描述
 )
 class SubNode(BaseNode):  # 继承BaseNode
     """
@@ -75,13 +75,13 @@ class SubNode(BaseNode):  # 继承BaseNode
 
 @node(  # 注册mul节点
     opcode="mul",  # 节点操作码
-    label="乘",  # 节点显示名称
+    label="乘法",  # 节点显示名称
     ports={  # 端口定义
-        "input": {"x": "输入1", "y": "输入2"},  # 两个输入端口
-        "output": {"out": "输出"},  # 一个输出端口
+        "input": {"x": "", "y": ""},  # 两个输入端口
+        "output": {"out": ""},  # 一个输出端口
     },
     params={},  # 无参数
-    description="逐元素乘法，门控机制核心",  # 节点描述
+    description="两个张量逐元素相乘",  # 节点描述
 )
 class MulNode(BaseNode):  # 继承BaseNode
     """
@@ -101,13 +101,13 @@ class MulNode(BaseNode):  # 继承BaseNode
 
 @node(  # 注册div节点
     opcode="div",  # 节点操作码
-    label="除",  # 节点显示名称
+    label="除法",  # 节点显示名称
     ports={  # 端口定义
         "input": {"x": "被除数", "y": "除数"},  # 两个输入端口
-        "output": {"out": "输出"},  # 一个输出端口
+        "output": {"out": ""},  # 一个输出端口
     },
     params={},  # 无参数
-    description="逐元素除法",  # 节点描述
+    description="两个张量逐元素相除",  # 节点描述
 )
 class DivNode(BaseNode):  # 继承BaseNode
     """
@@ -129,11 +129,11 @@ class DivNode(BaseNode):  # 继承BaseNode
     opcode="matmul",  # 节点操作码
     label="矩阵乘",  # 节点显示名称
     ports={  # 端口定义
-        "input": {"x": "输入1", "y": "输入2"},  # 两个输入端口
-        "output": {"out": "输出"},  # 一个输出端口
+        "input": {"x": "", "y": ""},  # 两个输入端口
+        "output": {"out": ""},  # 一个输出端口
     },
     params={},  # 无参数
-    description="矩阵乘法，神经网络最核心运算",  # 节点描述
+    description="矩阵相乘，支持批量",  # 节点描述
 )
 class MatmulNode(BaseNode):  # 继承BaseNode
     """
@@ -153,13 +153,13 @@ class MatmulNode(BaseNode):  # 继承BaseNode
 
 @node(  # 注册bmm节点
     opcode="bmm",  # 节点操作码
-    label="批量矩阵乘",  # 节点显示名称
+    label="批量矩阵乘法",  # 节点显示名称
     ports={  # 端口定义
-        "input": {"x": "输入1", "y": "输入2"},  # 两个输入端口
-        "output": {"out": "输出"},  # 一个输出端口
+        "input": {"x": "", "y": ""},  # 两个输入端口
+        "output": {"out": ""},  # 一个输出端口
     },
     params={},  # 无参数
-    description="批量矩阵乘法，多头并行计算",  # 节点描述
+    description="多组矩阵同时相乘",  # 节点描述
 )
 class BmmNode(BaseNode):  # 继承BaseNode
     """
@@ -181,13 +181,13 @@ class BmmNode(BaseNode):  # 继承BaseNode
     opcode="einsum",  # 节点操作码
     label="爱因斯坦求和",  # 节点显示名称
     ports={  # 端口定义
-        "input": {"x": "输入1", "y": "输入2"},  # 两个输入端口
-        "output": {"out": "输出"},  # 一个输出端口
+        "input": {"x": "", "y": ""},  # 两个输入端口
+        "output": {"out": ""},  # 一个输出端口
     },
     params={  # 参数定义
         "equation": {"label": "公式", "type": "str", "value": "ij,jk->ik"},  # 爱因斯坦求和公式
     },
-    description="字符串公式描述任意张量运算",  # 节点描述
+    description="用公式描述任意张量运算",  # 节点描述
 )
 class EinsumNode(BaseNode):  # 继承BaseNode
     """
@@ -213,10 +213,10 @@ class EinsumNode(BaseNode):  # 继承BaseNode
     label="插值",  # 节点显示名称
     ports={  # 端口定义
         "input": {"x": "起点", "y": "终点", "w": "权重"},  # 三个输入端口
-        "output": {"out": "输出"},  # 一个输出端口
+        "output": {"out": ""},  # 一个输出端口
     },
     params={},  # 无参数
-    description="线性插值",  # 节点描述
+    description="在两个值之间按权重过渡",  # 节点描述
 )
 class LerpNode(BaseNode):  # 继承BaseNode
     """
@@ -239,11 +239,11 @@ class LerpNode(BaseNode):  # 继承BaseNode
     opcode="dot",  # 节点操作码
     label="点积",  # 节点显示名称
     ports={  # 端口定义
-        "input": {"x": "输入1", "y": "输入2"},  # 两个输入端口
-        "output": {"out": "输出"},  # 一个输出端口
+        "input": {"x": "", "y": ""},  # 两个输入端口
+        "output": {"out": ""},  # 一个输出端口
     },
     params={},  # 无参数
-    description="向量点积，衡量相似度",  # 节点描述
+    description="两个向量逐元素乘再求和",  # 节点描述
 )
 class DotNode(BaseNode):  # 继承BaseNode
     """
@@ -263,15 +263,15 @@ class DotNode(BaseNode):  # 继承BaseNode
 
 @node(  # 注册pow节点
     opcode="pow",  # 节点操作码
-    label="幂",  # 节点显示名称
+    label="幂运算",  # 节点显示名称
     ports={  # 端口定义
-        "input": {"x": "底数"},  # 一个输入端口
-        "output": {"out": "输出"},  # 一个输出端口
+        "input": {"x": ""},  # 一个输入端口
+        "output": {"out": ""},  # 一个输出端口
     },
     params={  # 参数定义
         "exponent": {"label": "指数", "type": "float", "value": 2.0, "range": [-10, 10]},  # 幂次
     },
-    description="幂运算",  # 节点描述
+    description="对每个元素做n次方",  # 节点描述
 )
 class PowNode(BaseNode):  # 继承BaseNode
     """
@@ -294,15 +294,15 @@ class PowNode(BaseNode):  # 继承BaseNode
     opcode="norm",  # 节点操作码
     label="范数",  # 节点显示名称
     ports={  # 端口定义
-        "input": {"x": "输入"},  # 一个输入端口
-        "output": {"out": "输出"},  # 一个输出端口
+        "input": {"x": ""},  # 一个输入端口
+        "output": {"out": ""},  # 一个输出端口
     },
     params={  # 参数定义
         "p": {"label": "范数阶数", "type": "float", "value": 2.0, "range": [0, 10]},  # 范数的阶数
         "dim": {"label": "维度", "type": "int", "value": -1, "range": [-10, 10]},  # 沿哪个维度计算
         "keepdim": {"label": "保持维度", "type": "bool", "value": False},  # 是否保持维度
     },
-    description="计算范数即向量长度",  # 节点描述
+    description="计算向量的长度大小",  # 节点描述
 )
 class NormNode(BaseNode):  # 继承BaseNode
     """
@@ -327,11 +327,11 @@ class NormNode(BaseNode):  # 继承BaseNode
     opcode="exp",  # 节点操作码
     label="指数",  # 节点显示名称
     ports={  # 端口定义
-        "input": {"x": "输入"},  # 一个输入端口
-        "output": {"out": "输出"},  # 一个输出端口
+        "input": {"x": ""},  # 一个输入端口
+        "output": {"out": ""},  # 一个输出端口
     },
     params={},  # 无参数
-    description="e的x次方，Softmax内部用",  # 节点描述
+    description="求e的x次方",  # 节点描述
 )
 class ExpNode(BaseNode):  # 继承BaseNode
     """
@@ -352,11 +352,11 @@ class ExpNode(BaseNode):  # 继承BaseNode
     opcode="sqrt",  # 节点操作码
     label="开方",  # 节点显示名称
     ports={  # 端口定义
-        "input": {"x": "输入"},  # 一个输入端口
-        "output": {"out": "输出"},  # 一个输出端口
+        "input": {"x": ""},  # 一个输入端口
+        "output": {"out": ""},  # 一个输出端口
     },
     params={},  # 无参数
-    description="开平方",  # 节点描述
+    description="对每个元素开平方根",  # 节点描述
 )
 class SqrtNode(BaseNode):  # 继承BaseNode
     """
@@ -377,14 +377,14 @@ class SqrtNode(BaseNode):  # 继承BaseNode
     opcode="sum",  # 节点操作码
     label="求和",  # 节点显示名称
     ports={  # 端口定义
-        "input": {"x": "输入"},  # 一个输入端口
-        "output": {"out": "输出"},  # 一个输出端口
+        "input": {"x": ""},  # 一个输入端口
+        "output": {"out": ""},  # 一个输出端口
     },
     params={  # 参数定义
         "dim": {"label": "维度", "type": "int", "value": -1, "range": [-10, 10]},  # 沿哪个维度求和
         "keepdim": {"label": "保持维度", "type": "bool", "value": False},  # 是否保持维度
     },
-    description="沿指定维度求和",  # 节点描述
+    description="沿某个维度把元素加起来",  # 节点描述
 )
 class SumNode(BaseNode):  # 继承BaseNode
     """

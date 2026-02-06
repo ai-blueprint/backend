@@ -24,15 +24,15 @@ category(  # 注册形状分类
 
 @node(  # 注册reshape节点
     opcode="reshape",  # 节点操作码
-    label="reshape",  # 节点显示名称
+    label="变形",  # 节点显示名称
     ports={  # 端口定义
-        "input": {"x": "输入"},  # 一个输入端口
-        "output": {"out": "输出"},  # 一个输出端口
+        "input": {"x": ""},  # 一个输入端口
+        "output": {"out": ""},  # 一个输出端口
     },
     params={  # 参数定义
         "shape": {"label": "目标形状", "type": "list", "value": [-1]},  # 目标形状，-1表示自动推断
     },
-    description="改变形状，如拆分多头",  # 节点描述
+    description="改变张量形状，元素不变",  # 节点描述
 )
 class ReshapeNode(BaseNode):  # 继承BaseNode
     """
@@ -53,15 +53,15 @@ class ReshapeNode(BaseNode):  # 继承BaseNode
 
 @node(  # 注册view节点
     opcode="view",  # 节点操作码
-    label="view",  # 节点显示名称
+    label="视图变形",  # 节点显示名称
     ports={  # 端口定义
-        "input": {"x": "输入"},  # 一个输入端口
-        "output": {"out": "输出"},  # 一个输出端口
+        "input": {"x": ""},  # 一个输入端口
+        "output": {"out": ""},  # 一个输出端口
     },
     params={  # 参数定义
         "shape": {"label": "目标形状", "type": "list", "value": [-1]},  # 目标形状，-1表示自动推断
     },
-    description="改变形状，要求内存连续",  # 节点描述
+    description="改变形状，需内存连续",  # 节点描述
 )
 class ViewNode(BaseNode):  # 继承BaseNode
     """
@@ -82,16 +82,16 @@ class ViewNode(BaseNode):  # 继承BaseNode
 
 @node(  # 注册transpose节点
     opcode="transpose",  # 节点操作码
-    label="transpose",  # 节点显示名称
+    label="交换维度",  # 节点显示名称
     ports={  # 端口定义
-        "input": {"x": "输入"},  # 一个输入端口
-        "output": {"out": "输出"},  # 一个输出端口
+        "input": {"x": ""},  # 一个输入端口
+        "output": {"out": ""},  # 一个输出端口
     },
     params={  # 参数定义
         "dim0": {"label": "维度1", "type": "int", "value": 0, "range": [-10, 10]},  # 要交换的第一个维度
         "dim1": {"label": "维度2", "type": "int", "value": 1, "range": [-10, 10]},  # 要交换的第二个维度
     },
-    description="交换两个维度",  # 节点描述
+    description="交换指定的两个维度",  # 节点描述
 )
 class TransposeNode(BaseNode):  # 继承BaseNode
     """
@@ -113,15 +113,15 @@ class TransposeNode(BaseNode):  # 继承BaseNode
 
 @node(  # 注册permute节点
     opcode="permute",  # 节点操作码
-    label="permute",  # 节点显示名称
+    label="重排维度",  # 节点显示名称
     ports={  # 端口定义
-        "input": {"x": "输入"},  # 一个输入端口
-        "output": {"out": "输出"},  # 一个输出端口
+        "input": {"x": ""},  # 一个输入端口
+        "output": {"out": ""},  # 一个输出端口
     },
     params={  # 参数定义
         "dims": {"label": "维度顺序", "type": "list", "value": [0, 2, 1]},  # 新的维度排列顺序
     },
-    description="任意重排所有维度顺序",  # 节点描述
+    description="自由调整所有维度顺序",  # 节点描述
 )
 class PermuteNode(BaseNode):  # 继承BaseNode
     """
@@ -142,15 +142,15 @@ class PermuteNode(BaseNode):  # 继承BaseNode
 
 @node(  # 注册squeeze节点
     opcode="squeeze",  # 节点操作码
-    label="squeeze",  # 节点显示名称
+    label="压缩维度",  # 节点显示名称
     ports={  # 端口定义
-        "input": {"x": "输入"},  # 一个输入端口
-        "output": {"out": "输出"},  # 一个输出端口
+        "input": {"x": ""},  # 一个输入端口
+        "output": {"out": ""},  # 一个输出端口
     },
     params={  # 参数定义
         "dim": {"label": "维度", "type": "int", "value": -1, "range": [-10, 10]},  # 要去掉的维度
     },
-    description="去掉大小为1的维度",  # 节点描述
+    description="去掉长度为1的维度",  # 节点描述
 )
 class SqueezeNode(BaseNode):  # 继承BaseNode
     """
@@ -171,15 +171,15 @@ class SqueezeNode(BaseNode):  # 继承BaseNode
 
 @node(  # 注册unsqueeze节点
     opcode="unsqueeze",  # 节点操作码
-    label="unsqueeze",  # 节点显示名称
+    label="扩展维度",  # 节点显示名称
     ports={  # 端口定义
-        "input": {"x": "输入"},  # 一个输入端口
-        "output": {"out": "输出"},  # 一个输出端口
+        "input": {"x": ""},  # 一个输入端口
+        "output": {"out": ""},  # 一个输出端口
     },
     params={  # 参数定义
         "dim": {"label": "维度", "type": "int", "value": 0, "range": [-10, 10]},  # 要插入的维度位置
     },
-    description="增加一个大小为1的维度",  # 节点描述
+    description="插入一个长度为1的维度",  # 节点描述
 )
 class UnsqueezeNode(BaseNode):  # 继承BaseNode
     """
@@ -200,16 +200,16 @@ class UnsqueezeNode(BaseNode):  # 继承BaseNode
 
 @node(  # 注册flatten节点
     opcode="flatten",  # 节点操作码
-    label="flatten",  # 节点显示名称
+    label="压平",  # 节点显示名称
     ports={  # 端口定义
-        "input": {"x": "输入"},  # 一个输入端口
-        "output": {"out": "输出"},  # 一个输出端口
+        "input": {"x": ""},  # 一个输入端口
+        "output": {"out": ""},  # 一个输出端口
     },
     params={  # 参数定义
         "start_dim": {"label": "起始维度", "type": "int", "value": 1, "range": [-10, 10]},  # 从哪个维度开始压平
         "end_dim": {"label": "结束维度", "type": "int", "value": -1, "range": [-10, 10]},  # 到哪个维度结束压平
     },
-    description="多个维度压成一个",  # 节点描述
+    description="多个维度合并成一个",  # 节点描述
 )
 class FlattenNode(BaseNode):  # 继承BaseNode
     """
@@ -231,16 +231,16 @@ class FlattenNode(BaseNode):  # 继承BaseNode
 
 @node(  # 注册unflatten节点
     opcode="unflatten",  # 节点操作码
-    label="unflatten",  # 节点显示名称
+    label="展开",  # 节点显示名称
     ports={  # 端口定义
-        "input": {"x": "输入"},  # 一个输入端口
-        "output": {"out": "输出"},  # 一个输出端口
+        "input": {"x": ""},  # 一个输入端口
+        "output": {"out": ""},  # 一个输出端口
     },
     params={  # 参数定义
         "dim": {"label": "维度", "type": "int", "value": 1, "range": [-10, 10]},  # 要展开的维度
         "sizes": {"label": "展开形状", "type": "list", "value": [8, 64]},  # 展开后的形状
     },
-    description="一个维度展开成多个",  # 节点描述
+    description="一个维度拆成多个",  # 节点描述
 )
 class UnflattenNode(BaseNode):  # 继承BaseNode
     """
@@ -262,17 +262,17 @@ class UnflattenNode(BaseNode):  # 继承BaseNode
 
 @node(  # 注册pad节点
     opcode="pad",  # 节点操作码
-    label="pad",  # 节点显示名称
+    label="填充",  # 节点显示名称
     ports={  # 端口定义
-        "input": {"x": "输入"},  # 一个输入端口
-        "output": {"out": "输出"},  # 一个输出端口
+        "input": {"x": ""},  # 一个输入端口
+        "output": {"out": ""},  # 一个输出端口
     },
     params={  # 参数定义
         "padding": {"label": "填充量", "type": "list", "value": [0, 0, 0, 0]},  # 各维度的填充量
         "mode": {"label": "填充模式", "type": "enum", "value": "constant", "options": {"constant": "常数填充", "reflect": "反射填充", "replicate": "复制填充", "circular": "循环填充"}},  # 填充模式
         "value": {"label": "填充值", "type": "float", "value": 0.0, "range": [-1e6, 1e6]},  # 常数填充时的值
     },
-    description="边缘填充值，序列对齐用",  # 节点描述
+    description="在边缘补值，用于对齐",  # 节点描述
 )
 class PadNode(BaseNode):  # 继承BaseNode
     """
@@ -295,13 +295,13 @@ class PadNode(BaseNode):  # 继承BaseNode
 
 @node(  # 注册detach节点
     opcode="detach",  # 节点操作码
-    label="detach",  # 节点显示名称
+    label="断梯度",  # 节点显示名称
     ports={  # 端口定义
         "input": {"x": "输入"},  # 一个输入端口
         "output": {"out": "输出"},  # 一个输出端口
     },
     params={},  # 无参数
-    description="切断梯度传播",  # 节点描述
+    description="切断梯度，不再反向传播",  # 节点描述
 )
 class DetachNode(BaseNode):  # 继承BaseNode
     """
@@ -320,13 +320,13 @@ class DetachNode(BaseNode):  # 继承BaseNode
 
 @node(  # 注册clone节点
     opcode="clone",  # 节点操作码
-    label="clone",  # 节点显示名称
+    label="克隆",  # 节点显示名称
     ports={  # 端口定义
-        "input": {"x": "输入"},  # 一个输入端口
-        "output": {"out": "输出"},  # 一个输出端口
+        "input": {"x": ""},  # 一个输入端口
+        "output": {"out": ""},  # 一个输出端口
     },
     params={},  # 无参数
-    description="深拷贝，独立副本",  # 节点描述
+    description="复制一份完全独立的副本",  # 节点描述
 )
 class CloneNode(BaseNode):  # 继承BaseNode
     """

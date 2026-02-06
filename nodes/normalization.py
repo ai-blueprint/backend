@@ -24,17 +24,17 @@ category(  # 注册归一化分类
 
 @node(  # 注册LayerNorm节点
     opcode="layer_norm",  # 节点操作码
-    label="LayerNorm",  # 节点显示名称
+    label="层归一化",  # 节点显示名称
     ports={  # 端口定义
-        "input": {"x": "输入"},  # 一个输入端口
-        "output": {"out": "输出"},  # 一个输出端口
+        "input": {"x": ""},  # 一个输入端口
+        "output": {"out": ""},  # 一个输出端口
     },
     params={  # 参数定义
         "normalized_shape": {"label": "归一化形状", "type": "list", "value": [64]},  # 归一化的维度形状
         "eps": {"label": "防零极小值", "type": "float", "value": 1e-5, "range": [1e-10, 1e-1]},  # 防止除零的极小值
         "elementwise_affine": {"label": "可学习缩放偏移", "type": "bool", "value": True},  # 是否使用可学习的缩放和偏移
     },
-    description="单样本特征维度归一化",  # 节点描述
+    description="对每个样本的特征做归一化",  # 节点描述
 )
 class LayerNormNode(BaseNode):  # 继承BaseNode
     """
@@ -61,10 +61,10 @@ class LayerNormNode(BaseNode):  # 继承BaseNode
 
 @node(  # 注册GroupNorm节点
     opcode="group_norm",  # 节点操作码
-    label="GroupNorm",  # 节点显示名称
+    label="组归一化",  # 节点显示名称
     ports={  # 端口定义
-        "input": {"x": "输入"},  # 一个输入端口
-        "output": {"out": "输出"},  # 一个输出端口
+        "input": {"x": ""},  # 一个输入端口
+        "output": {"out": ""},  # 一个输出端口
     },
     params={  # 参数定义
         "num_groups": {"label": "分组数", "type": "int", "value": 8, "range": [1, 1024]},  # 分组数量
@@ -72,7 +72,7 @@ class LayerNormNode(BaseNode):  # 继承BaseNode
         "eps": {"label": "防零极小值", "type": "float", "value": 1e-5, "range": [1e-10, 1e-1]},  # 防止除零的极小值
         "affine": {"label": "可学习缩放偏移", "type": "bool", "value": True},  # 是否使用可学习的缩放和偏移
     },
-    description="特征分组，组内归一化",  # 节点描述
+    description="通道分组后组内归一化",  # 节点描述
 )
 class GroupNormNode(BaseNode):  # 继承BaseNode
     """

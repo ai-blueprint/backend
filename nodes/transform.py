@@ -33,7 +33,7 @@ category(  # 注册变换分类
         "out_features": {"label": "输出特征数", "type": "int", "value": 64},  # 输出维度
         "bias": {"label": "偏置", "type": "bool", "value": False},  # 是否使用偏置
     },
-    description="输入乘权重加偏置，最基础的全连接",  # 节点描述
+    description="输入乘权重加偏置，最基础层",  # 节点描述
 )
 class LinearNode(BaseNode):  # 继承BaseNode
     """

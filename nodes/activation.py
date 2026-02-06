@@ -23,7 +23,7 @@ category(  # 注册激活分类
 
 @node(  # 注册ReLU节点
     opcode="relu",  # 节点操作码
-    label="ReLU",  # 节点显示名称
+    label="负数归零",  # 节点显示名称
     ports={  # 端口定义
         "input": {"x": ""},  # 一个输入端口
         "output": {"out": ""},  # 一个输出端口
@@ -31,7 +31,7 @@ category(  # 注册激活分类
     params={  # 参数定义
         "inplace": {"label": "原地操作", "type": "bool", "value": False},  # 是否原地修改
     },
-    description="负数归零，正数不变",  # 节点描述
+    description="小于0变0，大于0不变",  # 节点描述
 )
 class ReLUNode(BaseNode):  # 继承BaseNode
     """
@@ -55,12 +55,12 @@ class ReLUNode(BaseNode):  # 继承BaseNode
 
 @node(  # 注册Sigmoid节点
     opcode="sigmoid",  # 节点操作码
-    label="Sigmoid",  # 节点显示名称
+    label="压到0~1",  # 节点显示名称
     ports={  # 端口定义
         "input": {"x": ""},  # 一个输入端口
         "output": {"out": ""},  # 一个输出端口
     },
-    description="压缩到0~1，常用于门控开关",  # 节点描述
+    description="把值压缩到0到1之间",  # 节点描述
 )
 class SigmoidNode(BaseNode):  # 继承BaseNode
     """
@@ -82,13 +82,13 @@ class SigmoidNode(BaseNode):  # 继承BaseNode
 
 @node(  # 注册Tanh节点
     opcode="tanh",  # 节点操作码
-    label="Tanh",  # 节点显示名称
+    label="压到±1",  # 节点显示名称
     ports={  # 端口定义
         "input": {"x": ""},  # 一个输入端口
         "output": {"out": ""},  # 一个输出端口
     },
     params={},  # 无参数
-    description="压缩到-1~1，中心对称",  # 节点描述
+    description="把值压缩到-1到1之间",  # 节点描述
 )
 class TanhNode(BaseNode):  # 继承BaseNode
     """
@@ -110,7 +110,7 @@ class TanhNode(BaseNode):  # 继承BaseNode
 
 @node(  # 注册Softmax节点
     opcode="softmax",  # 节点操作码
-    label="Softmax",  # 节点显示名称
+    label="转概率",  # 节点显示名称
     ports={  # 端口定义
         "input": {"x": ""},  # 一个输入端口
         "output": {"out": ""},  # 一个输出端口
@@ -118,7 +118,7 @@ class TanhNode(BaseNode):  # 继承BaseNode
     params={  # 参数定义
         "dim": {"label": "维度", "type": "int", "value": -1, "range": [-10, 10]},  # 沿哪个维度做softmax
     },
-    description="变成概率分布，加起来等于1",  # 节点描述
+    description="转为概率分布，总和为1",  # 节点描述
 )
 class SoftmaxNode(BaseNode):  # 继承BaseNode
     """
@@ -143,7 +143,7 @@ class SoftmaxNode(BaseNode):  # 继承BaseNode
 
 @node(  # 注册Softplus节点
     opcode="softplus",  # 节点操作码
-    label="Softplus",  # 节点显示名称
+    label="平滑归正",  # 节点显示名称
     ports={  # 端口定义
         "input": {"x": ""},  # 一个输入端口
         "output": {"out": ""},  # 一个输出端口
@@ -152,7 +152,7 @@ class SoftmaxNode(BaseNode):  # 继承BaseNode
         "beta": {"label": "平滑系数", "type": "float", "value": 1.0, "range": [0.01, 100]},  # 控制平滑程度
         "threshold": {"label": "线性阈值", "type": "float", "value": 20.0, "range": [1, 100]},  # 超过此值退化为线性
     },
-    description="ReLU的平滑版，永远为正",  # 节点描述
+    description="平滑版负数归零，输出恒为正",  # 节点描述
 )
 class SoftplusNode(BaseNode):  # 继承BaseNode
     """
