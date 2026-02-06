@@ -24,15 +24,15 @@ category(  # 注册变换分类
 
 @node(  # 注册Linear节点
     opcode="linear",  # 节点操作码
-    label="Linear",  # 节点显示名称
+    label="全连接层",  # 节点显示名称
     ports={  # 端口定义
-        "input": {"x": "输入"},  # 一个输入端口
-        "output": {"out": "输出"},  # 一个输出端口
+        "input": {"x": ""},  # 一个输入端口
+        "output": {"out": ""},  # 一个输出端口
     },
     params={  # 参数定义
-        "in_features": {"label": "输入特征数", "type": "int", "value": 64, "range": [1, 65536]},  # 输入维度
-        "out_features": {"label": "输出特征数", "type": "int", "value": 64, "range": [1, 65536]},  # 输出维度
-        "bias": {"label": "偏置", "type": "bool", "value": True},  # 是否使用偏置
+        "in_features": {"label": "输入特征数", "type": "int", "value": 64, "range": [1, 1024]},  # 输入维度
+        "out_features": {"label": "输出特征数", "type": "int", "value": 64, "range": [1, 1024]},  # 输出维度
+        "bias": {"label": "偏置", "type": "bool", "value": False},  # 是否使用偏置
     },
     description="输入乘权重加偏置，最基础的全连接",  # 节点描述
 )
@@ -62,14 +62,14 @@ class LinearNode(BaseNode):  # 继承BaseNode
     opcode="bilinear",  # 节点操作码
     label="Bilinear",  # 节点显示名称
     ports={  # 端口定义
-        "input": {"x1": "输入1", "x2": "输入2"},  # 两个输入端口
-        "output": {"out": "输出"},  # 一个输出端口
+        "input": {"x1": "", "x2": ""},  # 两个输入端口
+        "output": {"out": ""},  # 一个输出端口
     },
     params={  # 参数定义
-        "in1_features": {"label": "输入1特征数", "type": "int", "value": 64, "range": [1, 65536]},  # 输入1维度
-        "in2_features": {"label": "输入2特征数", "type": "int", "value": 64, "range": [1, 65536]},  # 输入2维度
-        "out_features": {"label": "输出特征数", "type": "int", "value": 64, "range": [1, 65536]},  # 输出维度
-        "bias": {"label": "偏置", "type": "bool", "value": True},  # 是否使用偏置
+        "in1_features": {"label": "输入1特征数", "type": "int", "value": 64, "range": [1, 1024]},  # 输入1维度
+        "in2_features": {"label": "输入2特征数", "type": "int", "value": 64, "range": [1, 1024]},  # 输入2维度
+        "out_features": {"label": "输出特征数", "type": "int", "value": 64, "range": [1, 1024]},  # 输出维度
+        "bias": {"label": "偏置", "type": "bool", "value": False},  # 是否使用偏置
     },
     description="两组输入交叉相乘，建模交互关系",  # 节点描述
 )
