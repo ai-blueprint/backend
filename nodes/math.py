@@ -23,7 +23,7 @@ category(  # 注册运算分类
 
 @node(  # 注册add节点
     opcode="add",  # 节点操作码
-    label="add",  # 节点显示名称
+    label="加",  # 节点显示名称
     ports={  # 端口定义
         "input": {"x": "输入1", "y": "输入2"},  # 两个输入端口
         "output": {"out": "输出"},  # 一个输出端口
@@ -49,7 +49,7 @@ class AddNode(BaseNode):  # 继承BaseNode
 
 @node(  # 注册sub节点
     opcode="sub",  # 节点操作码
-    label="sub",  # 节点显示名称
+    label="减",  # 节点显示名称
     ports={  # 端口定义
         "input": {"x": "输入1", "y": "输入2"},  # 两个输入端口
         "output": {"out": "输出"},  # 一个输出端口
@@ -75,7 +75,7 @@ class SubNode(BaseNode):  # 继承BaseNode
 
 @node(  # 注册mul节点
     opcode="mul",  # 节点操作码
-    label="mul",  # 节点显示名称
+    label="乘",  # 节点显示名称
     ports={  # 端口定义
         "input": {"x": "输入1", "y": "输入2"},  # 两个输入端口
         "output": {"out": "输出"},  # 一个输出端口
@@ -101,7 +101,7 @@ class MulNode(BaseNode):  # 继承BaseNode
 
 @node(  # 注册div节点
     opcode="div",  # 节点操作码
-    label="div",  # 节点显示名称
+    label="除",  # 节点显示名称
     ports={  # 端口定义
         "input": {"x": "被除数", "y": "除数"},  # 两个输入端口
         "output": {"out": "输出"},  # 一个输出端口
@@ -127,7 +127,7 @@ class DivNode(BaseNode):  # 继承BaseNode
 
 @node(  # 注册matmul节点
     opcode="matmul",  # 节点操作码
-    label="matmul",  # 节点显示名称
+    label="矩阵乘",  # 节点显示名称
     ports={  # 端口定义
         "input": {"x": "输入1", "y": "输入2"},  # 两个输入端口
         "output": {"out": "输出"},  # 一个输出端口
@@ -153,7 +153,7 @@ class MatmulNode(BaseNode):  # 继承BaseNode
 
 @node(  # 注册bmm节点
     opcode="bmm",  # 节点操作码
-    label="bmm",  # 节点显示名称
+    label="批量矩阵乘",  # 节点显示名称
     ports={  # 端口定义
         "input": {"x": "输入1", "y": "输入2"},  # 两个输入端口
         "output": {"out": "输出"},  # 一个输出端口
@@ -179,7 +179,7 @@ class BmmNode(BaseNode):  # 继承BaseNode
 
 @node(  # 注册einsum节点
     opcode="einsum",  # 节点操作码
-    label="einsum",  # 节点显示名称
+    label="爱因斯坦求和",  # 节点显示名称
     ports={  # 端口定义
         "input": {"x": "输入1", "y": "输入2"},  # 两个输入端口
         "output": {"out": "输出"},  # 一个输出端口
@@ -210,7 +210,7 @@ class EinsumNode(BaseNode):  # 继承BaseNode
 
 @node(  # 注册lerp节点
     opcode="lerp",  # 节点操作码
-    label="lerp",  # 节点显示名称
+    label="插值",  # 节点显示名称
     ports={  # 端口定义
         "input": {"x": "起点", "y": "终点", "w": "权重"},  # 三个输入端口
         "output": {"out": "输出"},  # 一个输出端口
@@ -237,7 +237,7 @@ class LerpNode(BaseNode):  # 继承BaseNode
 
 @node(  # 注册dot节点
     opcode="dot",  # 节点操作码
-    label="dot",  # 节点显示名称
+    label="点积",  # 节点显示名称
     ports={  # 端口定义
         "input": {"x": "输入1", "y": "输入2"},  # 两个输入端口
         "output": {"out": "输出"},  # 一个输出端口
@@ -263,7 +263,7 @@ class DotNode(BaseNode):  # 继承BaseNode
 
 @node(  # 注册pow节点
     opcode="pow",  # 节点操作码
-    label="pow",  # 节点显示名称
+    label="幂",  # 节点显示名称
     ports={  # 端口定义
         "input": {"x": "底数"},  # 一个输入端口
         "output": {"out": "输出"},  # 一个输出端口
@@ -292,7 +292,7 @@ class PowNode(BaseNode):  # 继承BaseNode
 
 @node(  # 注册norm节点
     opcode="norm",  # 节点操作码
-    label="norm",  # 节点显示名称
+    label="范数",  # 节点显示名称
     ports={  # 端口定义
         "input": {"x": "输入"},  # 一个输入端口
         "output": {"out": "输出"},  # 一个输出端口
@@ -325,7 +325,7 @@ class NormNode(BaseNode):  # 继承BaseNode
 
 @node(  # 注册exp节点
     opcode="exp",  # 节点操作码
-    label="exp",  # 节点显示名称
+    label="指数",  # 节点显示名称
     ports={  # 端口定义
         "input": {"x": "输入"},  # 一个输入端口
         "output": {"out": "输出"},  # 一个输出端口
@@ -350,7 +350,7 @@ class ExpNode(BaseNode):  # 继承BaseNode
 
 @node(  # 注册sqrt节点
     opcode="sqrt",  # 节点操作码
-    label="sqrt",  # 节点显示名称
+    label="开方",  # 节点显示名称
     ports={  # 端口定义
         "input": {"x": "输入"},  # 一个输入端口
         "output": {"out": "输出"},  # 一个输出端口
@@ -375,7 +375,7 @@ class SqrtNode(BaseNode):  # 继承BaseNode
 
 @node(  # 注册sum节点
     opcode="sum",  # 节点操作码
-    label="sum",  # 节点显示名称
+    label="求和",  # 节点显示名称
     ports={  # 端口定义
         "input": {"x": "输入"},  # 一个输入端口
         "output": {"out": "输出"},  # 一个输出端口
