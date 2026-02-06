@@ -11,7 +11,7 @@ from registry import category, node, BaseNode  # 从registry导入装饰器和�
 # ==================== 分类定义 ====================
 
 category(  # 注册基础分类
-    id="basic",  # 分类唯一标识
+    id="base",  # 分类唯一标识
     label="基础",  # 分类显示名称
     color="#8B92E5",  # 分类颜色
     icon="",  # 分类图标
