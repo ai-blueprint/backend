@@ -91,3 +91,10 @@
 ## 📬 联系方式 / 社区
 
 - **QQ 交流群**：[1081197052](https://qun.qq.com/universal-share/share?ac=1&authKey=eLkj1QLdUkC2LQAiLKW2tmH87UgnLxrp22jPc0q4vlCPVy84SOSYOR3coq8pNZuB&busi_data=eyJncm91cENvZGUiOiIxMDgxMTk3MDUyIiwidG9rZW4iOiJVbzB3dmJQNVl0cnozaFpKQmYycStPa2k3TEd2ZytIVTRENklkSHptcHhPU1JHK203QzgyNHhOcE9KSldhd1Q2IiwidWluIjoiOTE3ODExNzI2In0%3D&data=zyq7dImFnIpdAx5x2Zs8oKjKC8DAvkepKvOczDGKaOPHRi7YJGAcrwXq-3upjpICMZ1hK13zJ1UT9bzdTO8WpA&svctype=4&tempid=h5_group_info)
+
+## 致开发者
+>以下是设计的架构图
+>整个项目是先设计的架构图，再根据架构图进行开发，所以架构图是后端开发过程中最重要的文档。
+>此架构图的设计与逻辑调整耗费了我们大量的时间和脑力，希望开发者能够认真读完，相信能够快速理解整个项目的设计思路。
+
+![后端架构图](后端架构图.jpg)
