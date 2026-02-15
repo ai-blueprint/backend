@@ -280,7 +280,7 @@ class PowNode(BaseNode):  # 继承BaseNode
     调用示例：
         输入 x: shape=[任意形状]
         参数 exponent=2.0 表示平方
-        输出 out: shape=[与输入相同]
+        输出 out: shape=[与输入形状相同]
     """
 
     def compute(self, input):  # 计算方法
@@ -339,7 +339,7 @@ class ExpNode(BaseNode):  # 继承BaseNode
     用法：out = e^x
     调用示例：
         输入 x: shape=[任意形状]
-        输出 out: shape=[与输入相同]
+        输出 out: shape=[与输入形状相同]
     """
 
     def compute(self, input):  # 计算方法
@@ -364,7 +364,7 @@ class SqrtNode(BaseNode):  # 继承BaseNode
     用法：out = sqrt(x)
     调用示例：
         输入 x: shape=[任意形状]，值需非负
-        输出 out: shape=[与输入相同]
+        输出 out: shape=[与输入形状相同]
     """
 
     def compute(self, input):  # 计算方法
