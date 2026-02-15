@@ -1,7 +1,7 @@
 """
 nodes/math.py - 运算节点组
 
-提供张量运算相关节点：加减乘除、矩阵乘法、爱因斯坦求和、插值、点积、幂运算、范数、指数、开方、求和
+提供张量运算相关节点：加减乘除、矩阵乘法、爱因斯坦求和、插值、点积、幂运算、范数、指数、开方、求和、绝对值
 """
 
 import torch  # 导入torch用于张量操作
@@ -401,4 +401,29 @@ class SumNode(BaseNode):  # 继承BaseNode
         dim = self.params["dim"]["value"]  # 获取维度
         keepdim = self.params["keepdim"]["value"]  # 获取是否保持维度
         out = torch.sum(x, dim=dim, keepdim=keepdim)  # 沿维度求和
+        return {"out": out}  # 返回输出
+
+
+@node(  # 注册abs节点
+    opcode="abs",  # 节点操作码
+    label="绝对值",  # 节点显示名称
+    ports={  # 端口定义
+        "input": {"x": ""},  # 一个输入端口
+        "output": {"out": ""},  # 一个输出端口
+    },
+    params={},  # 无参数
+    description="对每个元素取绝对值",  # 节点描述
+)
+class AbsNode(BaseNode):  # 继承BaseNode
+    """
+    绝对值节点
+    用法：out = |x|，负数变正数，正数不变
+    调用示例：
+        输入 x: shape=[任意形状]
+        输出 out: shape=[与输入形状相同]
+    """
+
+    def compute(self, input):  # 计算方法
+        x = input.get("x")  # 获取输入张量
+        out = torch.abs(x)  # 逐元素取绝对值
         return {"out": out}  # 返回输出

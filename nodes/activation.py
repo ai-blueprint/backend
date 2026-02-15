@@ -1,7 +1,7 @@
 """
 nodes/activation.py - 激活节点组
 
-提供常用激活函数节点：ReLU、Sigmoid、Tanh、Softmax、Softplus
+提供常用激活函数节点：ReLU、Sigmoid、Tanh、Softmax、Softplus、LeakyReLU、ELU、GELU
 """
 
 import torch.nn as nn  # 导入nn模块用于构建层
@@ -172,4 +172,107 @@ class SoftplusNode(BaseNode):  # 继承BaseNode
     def compute(self, input):  # 计算方法
         x = input.get("x")  # 获取输入张量
         out = self.softplus(x)  # Softplus激活
+        return {"out": out}  # 返回输出
+
+
+@node(  # 注册LeakyReLU节点
+    opcode="leakyRelu",  # 节点操作码
+    label="带泄漏归正",  # 节点显示名称
+    ports={  # 端口定义
+        "input": {"x": ""},  # 一个输入端口
+        "output": {"out": ""},  # 一个输出端口
+    },
+    params={  # 参数定义
+        "negativeSlope": {"label": "负斜率", "type": "float", "value": 0.01, "range": [0, 1]},  # 负数区域的斜率
+        "inplace": {"label": "原地操作", "type": "bool", "value": False},  # 是否原地修改
+    },
+    description="负数乘以小斜率而非归零",  # 节点描述
+)
+class LeakyReLUNode(BaseNode):  # 继承BaseNode
+    """
+    LeakyReLU激活节点
+    用法：正数不变，负数乘以斜率 out = max(0,x) + negativeSlope * min(0,x)
+    调用示例：
+        输入 x: shape=[任意形状]
+        参数 negativeSlope=0.01 表示负数区域斜率
+        输出 out: shape=[与输入形状相同]
+    """
+
+    def build(self):  # 构建层
+        self.leakyRelu = nn.LeakyReLU(  # 创建LeakyReLU层
+            negative_slope=self.params["negativeSlope"]["value"],  # 负斜率
+            inplace=self.params["inplace"]["value"],  # 是否原地操作
+        )
+
+    def compute(self, input):  # 计算方法
+        x = input.get("x")  # 获取输入张量
+        out = self.leakyRelu(x)  # LeakyReLU激活
+        return {"out": out}  # 返回输出
+
+
+@node(  # 注册ELU节点
+    opcode="elu",  # 节点操作码
+    label="指数归正",  # 节点显示名称
+    ports={  # 端口定义
+        "input": {"x": ""},  # 一个输入端口
+        "output": {"out": ""},  # 一个输出端口
+    },
+    params={  # 参数定义
+        "alpha": {"label": "负饱和值", "type": "float", "value": 1.0, "range": [0, 10]},  # 负数区域的饱和值
+        "inplace": {"label": "原地操作", "type": "bool", "value": False},  # 是否原地修改
+    },
+    description="负数用指数曲线平滑过渡",  # 节点描述
+)
+class ELUNode(BaseNode):  # 继承BaseNode
+    """
+    ELU激活节点
+    用法：正数不变，负数用指数平滑 out = x if x>0 else alpha*(exp(x)-1)
+    调用示例：
+        输入 x: shape=[任意形状]
+        参数 alpha=1.0 控制负数区域饱和值
+        输出 out: shape=[与输入形状相同]
+    """
+
+    def build(self):  # 构建层
+        self.elu = nn.ELU(  # 创建ELU层
+            alpha=self.params["alpha"]["value"],  # 负饱和值
+            inplace=self.params["inplace"]["value"],  # 是否原地操作
+        )
+
+    def compute(self, input):  # 计算方法
+        x = input.get("x")  # 获取输入张量
+        out = self.elu(x)  # ELU激活
+        return {"out": out}  # 返回输出
+
+
+@node(  # 注册GELU节点
+    opcode="gelu",  # 节点操作码
+    label="高斯归正",  # 节点显示名称
+    ports={  # 端口定义
+        "input": {"x": ""},  # 一个输入端口
+        "output": {"out": ""},  # 一个输出端口
+    },
+    params={  # 参数定义
+        "approximate": {"label": "近似方式", "type": "str", "value": "none"},  # none或tanh
+    },
+    description="用高斯分布加权，Transformer常用",  # 节点描述
+)
+class GELUNode(BaseNode):  # 继承BaseNode
+    """
+    GELU激活节点
+    用法：用高斯误差函数加权 out = x * Φ(x)，Φ为标准正态分布CDF
+    调用示例：
+        输入 x: shape=[任意形状]
+        参数 approximate="none" 精确计算，"tanh" 用tanh近似加速
+        输出 out: shape=[与输入形状相同]
+    """
+
+    def build(self):  # 构建层
+        self.gelu = nn.GELU(  # 创建GELU层
+            approximate=self.params["approximate"]["value"],  # 近似方式
+        )
+
+    def compute(self, input):  # 计算方法
+        x = input.get("x")  # 获取输入张量
+        out = self.gelu(x)  # GELU激活
         return {"out": out}  # 返回输出
