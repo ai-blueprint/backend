@@ -1,7 +1,7 @@
 """
 nodes/math.py - 运算节点组
 
-提供张量运算相关节点：加减乘除、矩阵乘法、爱因斯坦求和、插值、点积、幂运算、范数、指数、开方、求和、绝对值
+提供张量运算相关节点：加减乘除、矩阵乘法、爱因斯坦求和、插值、点积、幂运算、范数、指数、开方、求和、绝对值、相反数、均值
 """
 
 import torch  # 导入torch用于张量操作
@@ -426,4 +426,60 @@ class AbsNode(BaseNode):  # 继承BaseNode
     def compute(self, input):  # 计算方法
         x = input.get("x")  # 获取输入张量
         out = torch.abs(x)  # 逐元素取绝对值
+        return {"out": out}  # 返回输出
+
+
+@node(  # 注册neg节点
+    opcode="neg",  # 节点操作码
+    label="相反数",  # 节点显示名称
+    ports={  # 端口定义
+        "input": {"x": ""},  # 一个输入端口
+        "output": {"out": ""},  # 一个输出端口
+    },
+    params={},  # 无参数
+    description="对每个元素取相反数",  # 节点描述
+)
+class NegNode(BaseNode):  # 继承BaseNode
+    """
+    相反数节点
+    用法：out = -x，正变负，负变正
+    调用示例：
+        输入 x: shape=[任意形状]
+        输出 out: shape=[与输入形状相同]
+    """
+
+    def compute(self, input):  # 计算方法
+        x = input.get("x")  # 获取输入张量
+        out = torch.neg(x)  # 逐元素取相反数
+        return {"out": out}  # 返回输出
+
+
+@node(  # 注册mean节点
+    opcode="mean",  # 节点操作码
+    label="均值",  # 节点显示名称
+    ports={  # 端口定义
+        "input": {"x": ""},  # 一个输入端口
+        "output": {"out": ""},  # 一个输出端口
+    },
+    params={  # 参数定义
+        "dim": {"label": "维度", "type": "int", "value": -1, "range": [-10, 10]},  # 沿哪个维度求均值
+        "keepdim": {"label": "保持维度", "type": "bool", "value": False},  # 是否保持维度
+    },
+    description="沿某个维度求平均值",  # 节点描述
+)
+class MeanNode(BaseNode):  # 继承BaseNode
+    """
+    均值节点
+    用法：out = mean(x, dim)，沿指定维度求平均
+    调用示例：
+        输入 x: shape=[batch, seq_len, features]
+        参数 dim=-1 沿最后维度求均值
+        输出 out: shape=[batch, seq_len] 或 [batch, seq_len, 1]（keepdim=True时）
+    """
+
+    def compute(self, input):  # 计算方法
+        x = input.get("x")  # 获取输入张量
+        dim = self.params["dim"]["value"]  # 获取维度
+        keepdim = self.params["keepdim"]["value"]  # 获取是否保持维度
+        out = torch.mean(x, dim=dim, keepdim=keepdim)  # 沿维度求均值
         return {"out": out}  # 返回输出
