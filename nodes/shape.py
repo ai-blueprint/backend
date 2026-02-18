@@ -1,7 +1,7 @@
 """
 nodes/shape.py - 形状节点组
 
-提供张量形状操作节点：reshape、view、transpose、permute、squeeze、unsqueeze、flatten、unflatten、pad、detach、clone
+提供张量形状操作节点：reshape/view、transpose、permute、squeeze、unsqueeze、flatten、unflatten、pad、detach、clone
 """
 
 import torch  # 导入torch用于张量操作
@@ -31,52 +31,29 @@ category(  # 注册形状分类
     },
     params={  # 参数定义
         "shape": {"label": "目标形状", "type": "list", "value": [-1]},  # 目标形状，-1表示自动推断
+        "mode": {"label": "模式", "type": "enum", "value": "reshape", "options": {"reshape": "reshape", "view": "view"}},  # reshape允许非连续，view要求连续
     },
     description="改变张量形状，元素不变",  # 节点描述
 )
 class ReshapeNode(BaseNode):  # 继承BaseNode
     """
-    reshape形状变换节点
-    用法：改变张量形状，元素总数不变 out = x.reshape(shape)
+    reshape/view形状变换节点
+    用法：改变张量形状，元素总数不变
     调用示例：
         输入 x: shape=[batch, seq_len*heads]
         参数 shape=[0, 8, -1] 其中-1自动推断
+        mode=reshape 允许非连续内存，mode=view 要求连续内存
         输出 out: shape=[batch, 8, seq_len*heads/8]
     """
 
     def compute(self, input):  # 计算方法
         x = input.get("x")  # 获取输入张量
         shape = self.params["shape"]["value"]  # 获取目标形状
-        out = x.reshape(shape)  # 改变形状
-        return {"out": out}  # 返回输出
-
-
-@node(  # 注册view节点
-    opcode="view",  # 节点操作码
-    label="视图变形",  # 节点显示名称
-    ports={  # 端口定义
-        "input": {"x": ""},  # 一个输入端口
-        "output": {"out": ""},  # 一个输出端口
-    },
-    params={  # 参数定义
-        "shape": {"label": "目标形状", "type": "list", "value": [-1]},  # 目标形状，-1表示自动推断
-    },
-    description="改变形状，需内存连续",  # 节点描述
-)
-class ViewNode(BaseNode):  # 继承BaseNode
-    """
-    view形状变换节点
-    用法：改变张量形状，要求内存连续 out = x.view(shape)
-    调用示例：
-        输入 x: shape=[batch, seq_len, heads*dim]
-        参数 shape=[0, 0, 8, 64] 其中-1自动推断
-        输出 out: shape=[batch, seq_len, 8, 64]
-    """
-
-    def compute(self, input):  # 计算方法
-        x = input.get("x")  # 获取输入张量
-        shape = self.params["shape"]["value"]  # 获取目标形状
-        out = x.view(shape)  # 改变形状（要求连续内存）
+        mode = self.params["mode"]["value"]  # 获取模式
+        if mode == "view":  # view模式要求内存连续
+            out = x.view(shape)  # 连续内存变形
+        else:  # reshape模式
+            out = x.reshape(shape)  # 允许非连续内存变形
         return {"out": out}  # 返回输出
 
 
