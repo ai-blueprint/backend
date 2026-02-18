@@ -108,7 +108,3 @@ def start(host="localhost", port=8765):
             await asyncio.Future()  # 保持运行，永不结束
 
     asyncio.run(main())  # 运行异步主函数
-
-
-if __name__ == "__main__":  # 直接运行此文件时启动服务
-    start()
