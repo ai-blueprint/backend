@@ -4,6 +4,7 @@ sort.py - 拓扑排序
 用法：
     import sort
     sortedIds = sort.topoSort(nodes, edges)  # 获取拓扑排序后的节点id列表
+    sortedIds = sort.topoSort(nodes, edges, strict=True)  # 严格模式下遇到非法边会直接报错
 
 示例：
     nodes = [{"id": "a"}, {"id": "b"}, {"id": "c"}]
@@ -14,12 +15,16 @@ sort.py - 拓扑排序
 from collections import deque  # 双端队列，用于BFS
 
 
-def topoSort(nodes, edges):
+def topoSort(nodes, edges, strict=False):
     inDegree = {}  # 入度表，记录每个节点有多少个前置节点
     adjacency = {}  # 邻接表，记录每个节点指向哪些后继节点
+    nodeIds = set()  # 节点id集合，用于检查重复id
 
     for node in nodes:  # 遍历所有节点
         nodeId = node.get("id", "")  # 获取节点id
+        if nodeId in nodeIds:  # 如果节点id已经出现过
+            raise Exception(f"存在重复节点ID，无法进行拓扑排序: {nodeId}")  # 抛出重复节点错误，避免图结构歧义
+        nodeIds.add(nodeId)  # 记录当前节点id
         inDegree[nodeId] = 0  # 初始化入度为0
         adjacency[nodeId] = []  # 初始化邻接列表为空
 
@@ -28,9 +33,13 @@ def topoSort(nodes, edges):
         target = edge.get("target", "")  # 获取边的目标节点
 
         if source not in adjacency:  # 如果源节点不在邻接表中
+            if strict:  # 严格模式下直接报错，提示边的源节点非法
+                raise Exception(f"存在非法边，源节点不存在: {source} -> {target}")  # 抛出非法边错误
             continue  # 跳过这条边
 
         if target not in inDegree:  # 如果目标节点不在入度表中
+            if strict:  # 严格模式下直接报错，提示边的目标节点非法
+                raise Exception(f"存在非法边，目标节点不存在: {source} -> {target}")  # 抛出非法边错误
             continue  # 跳过这条边
 
         adjacency[source].append(target)  # 把目标节点加入源节点的邻接列表
@@ -55,6 +64,8 @@ def topoSort(nodes, edges):
                 queue.append(neighbor)  # 加入队列
 
     if len(result) != len(nodes):  # 如果结果数量不等于节点数量
-        raise Exception("存在循环依赖，无法进行拓扑排序")  # 抛出异常
+        cycleNodeIds = sorted([nodeId for nodeId, degree in inDegree.items() if degree > 0])  # 找出仍然有入度的节点，它们都在循环依赖中
+        cycleNodesText = ",".join(cycleNodeIds)  # 转成可读字符串方便日志和前端展示
+        raise Exception(f"存在循环依赖，无法进行拓扑排序，涉及节点: {cycleNodesText}")  # 抛出包含节点列表的异常
 
     return result  # 返回排序结果数组
