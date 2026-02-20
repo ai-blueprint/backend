@@ -29,8 +29,8 @@ category(  # 注册变换分类
         "output": {"out": ""},  # 一个输出端口
     },
     params={  # 参数定义
-        "in_features": {"label": "输入特征数", "type": "int", "value": 64},  # 输入维度
-        "out_features": {"label": "输出特征数", "type": "int", "value": 64},  # 输出维度
+        "in_features": {"label": "输入特征数", "type": "int", "value": 64, "range": [1, 65536]},  # 输入维度
+        "out_features": {"label": "输出特征数", "type": "int", "value": 64, "range": [1, 65536]},  # 输出维度
         "bias": {"label": "偏置", "type": "bool", "value": False},  # 是否使用偏置
     },
     description="输入乘权重加偏置，最基础层",  # 节点描述
@@ -66,13 +66,13 @@ class LinearNode(BaseNode):  # 继承BaseNode
     },
     params={  # 参数定义
         "dim": {"label": "维度", "type": "enum", "value": "2d", "options": {"1d": "1D卷积", "2d": "2D卷积", "3d": "3D卷积"}},  # 卷积维度选择
-        "in_channels": {"label": "输入通道数", "type": "int", "value": 3},  # 输入通道数
-        "out_channels": {"label": "输出通道数", "type": "int", "value": 64},  # 输出通道数
+        "in_channels": {"label": "输入通道数", "type": "int", "value": 3, "range": [1, 65536]},  # 输入通道数
+        "out_channels": {"label": "输出通道数", "type": "int", "value": 64, "range": [1, 65536]},  # 输出通道数
         "kernel_size": {"label": "卷积核大小", "type": "list", "value": "3"},  # 卷积核尺寸，支持单值或逗号分隔
         "stride": {"label": "步幅", "type": "list", "value": "1"},  # 步幅
         "padding": {"label": "填充", "type": "list", "value": "0"},  # 填充大小
         "dilation": {"label": "膨胀", "type": "list", "value": "1"},  # 膨胀系数
-        "groups": {"label": "分组数", "type": "int", "value": 1},  # 分组卷积的组数
+        "groups": {"label": "分组数", "type": "int", "value": 1, "range": [1, 65536]},  # 分组卷积的组数
         "bias": {"label": "偏置", "type": "bool", "value": True},  # 是否使用偏置
         "padding_mode": {"label": "填充模式", "type": "enum", "value": "zeros", "options": {"zeros": "零填充", "reflect": "反射填充", "replicate": "复制填充", "circular": "循环填充"}},  # 填充模式
     },
