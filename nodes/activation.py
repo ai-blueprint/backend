@@ -253,7 +253,7 @@ class ELUNode(BaseNode):  # 继承BaseNode
         "output": {"out": ""},  # 一个输出端口
     },
     params={  # 参数定义
-        "approximate": {"label": "近似方式", "type": "str", "value": "none"},  # none或tanh
+        "approximate": {"label": "近似方式", "type": "enum", "value": "none", "options": {"none": "精确计算", "tanh": "tanh近似"}},  # none精确，tanh近似加速
     },
     description="用高斯分布加权，Transformer常用",  # 节点描述
 )
