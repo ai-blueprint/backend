@@ -325,7 +325,7 @@ class NormNode(BaseNode):  # 继承BaseNode
 
 @node(  # 注册exp节点
     opcode="exp",  # 节点操作码
-    label="指数",  # 节点显示名称
+    label="自然指数",  # 节点显示名称
     ports={  # 端口定义
         "input": {"x": ""},  # 一个输入端口
         "output": {"out": ""},  # 一个输出端口
@@ -335,7 +335,7 @@ class NormNode(BaseNode):  # 继承BaseNode
 )
 class ExpNode(BaseNode):  # 继承BaseNode
     """
-    指数运算节点
+    自然指数运算节点
     用法：out = e^x
     调用示例：
         输入 x: shape=[任意形状]
