@@ -6,6 +6,11 @@ categories = {}
 categoriesOrder = ["base", "transform", "activation", "math"]
 
 
+def clearAll():  # 清空注册表，热重载时调用
+    nodes.clear()  # 清空节点字典
+    categories.clear()  # 清空分类字典
+
+
 def registerCategory(id, label, color, icon):
     category = {}
     category["label"] = label

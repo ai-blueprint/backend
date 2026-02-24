@@ -9,6 +9,7 @@ dependencies = [
     "torchaudio>=2.9.1",
     "torchvision>=0.24.1",
     "websockets>=16.0",
+    "watchfiles>=1.0",
 ]
 [tool.uv]
 index-url = "https://pypi.tuna.tsinghua.edu.cn/simple"

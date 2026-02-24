@@ -1,5 +1,7 @@
 import os  # 操作系统模块，用于文件路径操作
+import sys  # 系统模块，用于操作模块缓存
 import importlib  # 动态导入模块的库
+import registry  # 节点注册表模块，用于清空重建
 
 
 def importModule(filepath):
@@ -31,3 +33,14 @@ def loadAll(folder="nodes"):
             relativeFilepath = os.path.relpath(absoluteFilepath, os.path.dirname(__file__))  # 再转成相对当前工程根目录的路径
             importModule(relativeFilepath)  # 动态导入这个模块
             print(f"已加载节点模块: {relativeFilepath}")  # 打印加载信息
+
+
+def reloadAll(folder="nodes"):
+    """
+    示例：reloadAll()  # 清空registry，清除模块缓存，重新导入所有节点文件
+    """
+    registry.clearAll()  # 清空节点和分类注册表
+    for key in list(sys.modules.keys()):  # 遍历所有已加载模块
+        if key.startswith("nodes."):  # 如果是nodes目录下的模块
+            del sys.modules[key]  # 从缓存中删除，确保重新导入
+    loadAll(folder)  # 重新扫描并导入所有节点文件

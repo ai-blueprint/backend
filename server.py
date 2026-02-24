@@ -14,10 +14,12 @@ server.py - WebSocket服务器
 
 import asyncio  # 异步IO库，用于处理WebSocket的异步操作
 import json  # JSON库，用于消息的序列化和反序列化
+import os  # 操作系统模块，用于路径操作
 import websockets  # WebSocket库，用于创建WebSocket服务器
 
 import registry  # 节点注册表模块，用于获取节点信息
 import engine  # 蓝图执行引擎模块，用于运行蓝图
+import loader  # 节点加载器模块，用于热重载
 import torch  # 导入torch用于张量操作
 
 clients = set()  # 全局变量：已连接的前端客户端集合，用set存储方便增删
@@ -110,9 +112,39 @@ async def handleConnection(ws):
 def start(host="localhost", port=8765):
     print(f"WebSocket服务启动中... ws://{host}:{port}")  # 打印启动信息
 
+    async def broadcast(type, data):  # 广播消息给所有已连接客户端
+        msg = json.dumps({"type": type, "data": data})  # 序列化消息
+        for ws in list(clients):  # 遍历所有客户端
+            try:
+                await ws.send(msg)  # 发送消息
+            except Exception:
+                pass  # 忽略发送失败的客户端
+
+    async def watchNodes():  # 监控nodes目录文件变化
+        from watchfiles import awatch  # 延迟导入watchfiles
+        nodesDir = os.path.join(os.path.dirname(__file__), "nodes")  # 获取nodes目录绝对路径
+        print(f"开始监控节点目录: {nodesDir}")  # 打印监控信息
+        async for changes in awatch(nodesDir):  # 异步监控文件变化
+            pyChanges = [c for c in changes if c[1].endswith(".py")]  # 只关注.py文件变化
+            if not pyChanges:  # 没有.py文件变化
+                continue  # 跳过
+            print(f"检测到节点文件变化: {pyChanges}")  # 打印变化信息
+            snapshot = dict(registry.nodes), dict(registry.categories)  # 快照当前registry
+            try:
+                loader.reloadAll()  # 全量重建registry
+                print("热重载完成，广播新registry")  # 打印成功信息
+                await broadcast("registryUpdated", registry.getAllForFrontend())  # 广播给前端
+            except Exception as e:  # 重载失败
+                print(f"热重载失败，回滚: {e}")  # 打印失败信息
+                registry.nodes.clear()  # 清空当前
+                registry.categories.clear()  # 清空当前
+                registry.nodes.update(snapshot[0])  # 回滚nodes
+                registry.categories.update(snapshot[1])  # 回滚categories
+                await broadcast("reloadError", {"error": str(e)})  # 广播错误消息
+
     async def main():  # 定义异步主函数
         async with websockets.serve(handleConnection, host, port):  # 创建WebSocket服务器
             print(f"WebSocket服务已启动: ws://{host}:{port}")  # 打印启动成功信息
-            await asyncio.Future()  # 保持运行，永不结束
+            await watchNodes()  # 监控nodes目录变化，替代原来的await asyncio.Future()
 
     asyncio.run(main())  # 运行异步主函数
