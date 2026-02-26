@@ -20,7 +20,6 @@ import websockets  # WebSocket库，用于创建WebSocket服务器
 import registry  # 节点注册表模块，用于获取节点信息
 import engine  # 蓝图执行引擎模块，用于运行蓝图
 import loader  # 节点加载器模块，用于热重载
-import torch  # 导入torch用于张量操作
 
 clients = set()  # 全局变量：已连接的前端客户端集合，用set存储方便增删
 
