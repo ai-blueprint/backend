@@ -24,7 +24,7 @@
 		main.py
 			启动服务
 				导入server模块
-				调用 server.start() 启动WebSocket服务，默认localhost:8765
+				调用 server.start() 启动WebSocket服务，默认0.0.0.0:8765
 		server.py
 			全局变量
 				clients：已连接的前端客户端集合，用set存储

@@ -7,9 +7,9 @@ server.py - WebSocket服务器
     server.start("0.0.0.0", 9000)  # 指定host和port启动
 
 示例：
-    server.start()  # 在localhost:8765启动WebSocket服务
+    server.start()  # 在0.0.0.0:8765启动WebSocket服务
     server.start("0.0.0.0")  # 在0.0.0.0:8765启动
-    server.start(port=9000)  # 在localhost:9000启动
+    server.start(port=9000)  # 在0.0.0.0:9000启动
 """
 
 import asyncio  # 异步IO库，用于处理WebSocket的异步操作
@@ -109,7 +109,7 @@ async def handleConnection(ws):
         print(f"前端已断开，当前连接数: {len(clients)}")  # 打印断开信息
 
 
-def start(host="localhost", port=8765):
+def start(host="0.0.0.0", port=8765):
     print(f"WebSocket服务启动中... ws://{host}:{port}")  # 打印启动信息
 
     async def broadcast(type, data):  # 广播消息给所有已连接客户端
