@@ -13,6 +13,8 @@ engine.py - 蓝图执行引擎
     await engine.run(blueprintData, onMsg, onErr)
 """
 
+from collections import defaultdict  # 默认字典，用于按目标节点分组边
+
 import loader  # 加载器模块，用于加载所有节点
 import registry  # 注册表模块，用于获取节点定义和创建节点实例
 import sort  # 拓扑排序模块，用于确定执行顺序
@@ -35,7 +37,7 @@ async def run(blueprint, onMessage, onError):  # 异步运行蓝图的主函数
             async def(nodeId, error): pass     # 节点错误回调
         )
     """
-    
+
     nodes = blueprint.get("nodes", [])  # 从蓝图中提取节点列表
     edges = blueprint.get("edges", [])  # 从蓝图中提取边列表
 
@@ -49,6 +51,11 @@ async def run(blueprint, onMessage, onError):  # 异步运行蓝图的主函数
 
     instances = {}  # 存储所有节点的实例，格式：{nodeId: BaseNode实例}
     results = {}  # 存储所有节点的输出结果，格式：{nodeId: {port: value}}
+
+    edgesByTarget = defaultdict(list)  # 按目标节点分组所有边，避免重复全量扫描
+    for edge in edges:  # 遍历所有边建立分组索引
+        targetId = edge.get("target", "")  # 读取边的目标节点id
+        edgesByTarget[targetId].append(edge)  # 将边放入目标节点对应的入边列表
 
     # ========== 阶段1：创建所有节点实例 ==========
     print("开始创建节点实例...")  # 打印阶段信息
@@ -67,7 +74,9 @@ async def run(blueprint, onMessage, onError):  # 异步运行蓝图的主函数
             return  # 终止执行
 
         try:  # 尝试创建节点实例
-            instance = registry.createNode(opcode, nodeId, params)  # 调用registry创建实例
+            instance = registry.createNode(
+                opcode, nodeId, params
+            )  # 调用registry创建实例
             instances[nodeId] = instance  # 存入实例字典
             print(f"节点实例创建成功: {nodeId} ({opcode})")  # 打印成功信息
         except Exception as e:  # 如果创建失败
@@ -84,11 +93,8 @@ async def run(blueprint, onMessage, onError):  # 异步运行蓝图的主函数
 
         # 收集当前节点的输入
         inputValues = {}  # 创建空字典准备装输入值
-        for edge in edges:  # 遍历所有边
-            targetId = edge.get("target", "")  # 获取边的目标节点id
-            if targetId != nodeId:  # 如果目标不是当前节点
-                continue  # 跳过这条边
-
+        incomingEdges = edgesByTarget.get(nodeId, [])  # 直接读取当前节点的全部入边
+        for edge in incomingEdges:  # 仅遍历当前节点相关的边
             sourceId = edge.get("source", "")  # 获取源节点id
             sourcePort = edge.get("sourceHandle", "out")  # 获取源端口名，默认out
             targetPort = edge.get("targetHandle", "in")  # 获取目标端口名，默认in
