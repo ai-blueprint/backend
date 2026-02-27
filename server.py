@@ -3,133 +3,114 @@ server.py - WebSocket服务器
 
 用法：
     import server
-    server.start()  # 使用默认参数启动
+    server.start()              # 使用默认参数启动
     server.start("0.0.0.0", 9000)  # 指定host和port启动
-
-示例：
-    server.start()  # 在0.0.0.0:8765启动WebSocket服务
-    server.start("0.0.0.0")  # 在0.0.0.0:8765启动
-    server.start(port=9000)  # 在0.0.0.0:9000启动
 """
 
-import asyncio  # 异步IO库，用于处理WebSocket的异步操作
-import json  # JSON库，用于消息的序列化和反序列化
-import websockets  # WebSocket库，用于创建WebSocket服务器
+import asyncio
+import json
+import websockets
 
-import registry  # 节点注册表模块，用于获取节点信息
-import engine  # 蓝图执行引擎模块，用于运行蓝图
+import registry  # 节点注册表，提供 getAllForFrontend()
+import engine  # 蓝图执行引擎，提供 run()
 
-clients = set()  # 全局变量：已连接的前端客户端集合，用set存储方便增删
+clients = set()  # 已连接的前端客户端集合，用 set 存储方便增删
 
 
 async def sendMessage(ws, type, id, data):
     """
-    发送消息给前端
-    示例：
-        await sendMessage(websocket, "getNodes", "req1", nodesData)  # 发送节点数据
-        await sendMessage(websocket, "nodeComplete", "req2", result)  # 发送节点执行结果
+    向单个客户端发送普通消息。
+    消息格式：{"type": ..., "id": ..., "data": ...}
+    id 用于前端将响应匹配回对应的请求。
     """
-    msg = {}  # 创建空字典准备装消息
-    msg["type"] = type  # 消息类型，比如getNodes、runBlueprint
-    msg["id"] = id  # 消息ID，用于前端匹配请求和响应
-    msg["data"] = data  # 消息数据，具体内容根据type不同而不同
-    print(f"发送给前端消息: {type} {data}")
-    text = json.dumps(msg)  # 把字典转成JSON字符串
-
-    await ws.send(text)  # 通过WebSocket发送给前端
+    print(f"发送消息: {type} {data}")
+    await ws.send(json.dumps({"type": type, "id": id, "data": data}))
 
 
 async def sendError(ws, type, id, error):
     """
-    发送错误消息给前端
-    用法：await sendError(ws, "runBlueprint", "msg123", "节点执行失败")
+    向单个客户端发送错误消息。
+    消息格式：{"type": ..., "id": ..., "error": ...}
+    用 error 字段而非 data，方便前端区分正常响应和错误响应。
     """
-    msg = {}  # 创建空字典准备装错误消息
-    msg["type"] = type  # 消息类型
-    msg["id"] = id  # 消息ID
-    msg["error"] = error  # 错误信息
-    text = json.dumps(msg)  # 把字典转成JSON字符串
-    await ws.send(text)  # 通过WebSocket发送给前端
+    await ws.send(json.dumps({"type": type, "id": id, "error": error}))
+
+
+async def broadcast(type, data):
+    """
+    向所有已连接客户端广播消息。
+    广播消息没有 id，因为它不对应任何一个前端请求。
+    发送失败的客户端会被静默跳过，不影响其他客户端。
+    """
+    msg = json.dumps({"type": type, "data": data})
+    for ws in list(clients):  # list() 防止迭代时集合被修改
+        try:
+            await ws.send(msg)
+        except Exception:
+            pass  # 客户端已断开，忽略，等 handleConnection 的 finally 清理
 
 
 async def handleMessage(ws, message):
     """
-    用法：await handleMessage(ws, '{"type": "getNodes", "id": "req1"}')
+    解析并分发单条前端消息。
+    前端消息格式：{"type": ..., "id": ..., "data": ...}
     """
-    data = json.loads(message)  # 把JSON字符串解析成字典
-    msg_type = data.get("type", "")  # 提取消息类型，默认空字符串
-    id = data.get("id", "")  # 提取消息ID，默认空字符串
+    data = json.loads(message)
+    msg_type = data.get("type", "")
+    id = data.get("id", "")
 
-    if msg_type == "getRegistry":  # 如果是请求节点注册表
-        result = registry.getAllForFrontend()  # 调用registry获取前端格式的节点数据
-        await sendMessage(ws, msg_type, id, result)  # 发送响应给前端
-        return  # 处理完毕，返回
+    if msg_type == "getRegistry":
+        # 前端请求节点注册表，返回过滤后的标准结构
+        result = registry.getAllForFrontend()
+        await sendMessage(ws, msg_type, id, result)
 
-    elif msg_type == "runBlueprint":  # 如果是请求运行蓝图
-        blueprint = data["data"].get("blueprint")  # 提取蓝图数据
-        print(f"收到运行蓝图请求: {blueprint}")  # 收到运行蓝图请求: None
+    elif msg_type == "runBlueprint":
+        blueprint = data["data"].get("blueprint")
+        print(f"收到运行蓝图请求: {blueprint}")
 
-        async def onMessage(nodeId, result):  # 定义节点执行完成的回调
-            await sendMessage(
-                ws, "nodeResult", id, {"nodeId": nodeId, "result": result}
-            )  # 发送节点结果
+        # 两个回调把引擎的执行进度实时推送给前端
+        async def onMessage(nodeId, result):
+            await sendMessage(ws, "nodeResult", id, {"nodeId": nodeId, "result": result})
 
-        async def onError(nodeId, error):  # 定义节点执行出错的回调
-            await sendError(
-                ws, "nodeError", id, {"nodeId": nodeId, "error": error}
-            )  # 发送节点错误
+        async def onError(nodeId, error):
+            await sendError(ws, "nodeError", id, {"nodeId": nodeId, "error": error})
 
-        result = await engine.run(blueprint, onMessage, onError)  # 调用引擎运行蓝图
-        await sendMessage(
-            ws, "blueprintComplete", id, {"result": result}
-        )  # 发送蓝图执行完成消息
-        return  # 处理完毕，返回
+        result = await engine.run(blueprint, onMessage, onError)
+        await sendMessage(ws, "blueprintComplete", id, {"result": result})
 
-    else:  # 如果是未知消息类型
-        await sendError(
-            ws, "unknown", id, f"未知消息类型：{msg_type}"
-        )  # 发送未知消息类型的错误消息
-        return
+    else:
+        await sendError(ws, "unknown", id, f"未知消息类型：{msg_type}")
 
 
 async def handleConnection(ws):
-    clients.add(ws)  # 将新连接的前端加入clients集合
-    print(f"前端已连接，当前连接数: {len(clients)}")  # 打印连接信息
+    """
+    管理单个客户端连接的完整生命周期：加入 → 收消息 → 离开。
+    """
+    clients.add(ws)
+    print(f"前端已连接，当前连接数: {len(clients)}")
 
-    try:  # 尝试接收消息
-        async for message in ws:  # 循环接收前端发来的消息
-            await handleMessage(ws, message)  # 调用handleMessage处理每条消息
-    except websockets.exceptions.ConnectionClosed:  # 如果连接断开
-        pass  # 忽略断开异常，正常退出循环
-    finally:  # 无论如何都要执行的清理
-        clients.discard(ws)  # 从clients集合中移除这个连接
-        print(f"前端已断开，当前连接数: {len(clients)}")  # 打印断开信息
+    async for message in ws:  # 连接断开时自动停止迭代，无需捕获异常
+        await handleMessage(ws, message)
+
+    clients.discard(ws)  # 用 discard 而非 remove，防止重复移除时抛异常
+    print(f"前端已断开，当前连接数: {len(clients)}")
 
 
 def start(host="0.0.0.0", port=8765):
-    print(f"WebSocket服务启动中... ws://{host}:{port}")  # 打印启动信息
+    """
+    启动 WebSocket 服务器，阻塞运行直到进程终止。
+    """
+    print(f"WebSocket服务启动中... ws://{host}:{port}")
 
-    async def broadcast(type, data):  # 广播消息给所有已连接客户端
-        msg = json.dumps({"type": type, "data": data})  # 序列化消息
-        for ws in list(clients):  # 遍历所有客户端
-            try:
-                await ws.send(msg)  # 发送消息
-            except Exception:
-                pass  # 忽略发送失败的客户端
+    async def main():
+        async with websockets.serve(handleConnection, host, port):
+            print(f"WebSocket服务已启动: ws://{host}:{port}")
 
-    async def main():  # 定义异步主函数
-        async with websockets.serve(
-            handleConnection, host, port
-        ):  # 创建WebSocket服务器
-            print(f"WebSocket服务已启动: ws://{host}:{port}")  # 打印启动成功信息
+            # 可拔插热重载：需要时保留下面两行，不需要时注释即可拔出
+            import plugin_hot_reload
 
-            # 可拔插热重载：需要时保留下面两行，不需要时注释即可拔出功能
-            import plugin_hot_reload  # 导入热重载插件模块
+            plugin_hot_reload.mountHotReload(asyncio.get_running_loop(), broadcast)
 
-            plugin_hot_reload.mountHotReload(
-                asyncio.get_running_loop(), broadcast
-            )  # 挂载热重载后台任务
+            await asyncio.Future()  # 永久挂起，保持服务常驻
 
-            await asyncio.Future()  # 保持服务常驻运行
-
-    asyncio.run(main())  # 运行异步主函数
+    asyncio.run(main())
