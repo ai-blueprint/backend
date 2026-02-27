@@ -12,23 +12,10 @@ def clearAll():  # 清空注册表，热重载时调用
 
 
 def registerCategory(id, label, color, icon):
-    category = {}
-    category["label"] = label
-    category["color"] = color
-    category["icon"] = icon
-    category["nodes"] = []
-    categories[id] = category
-
+    categories[id] = {"label": label, "color": color, "icon": icon, "nodes": []}
 
 def registerNode(opcode, label, ports, params, description, cls):
-    node = {}
-    node["opcode"] = opcode
-    node["label"] = label
-    node["ports"] = ports
-    node["params"] = params
-    node["description"] = description
-    node["cls"] = cls
-    nodes[opcode] = node
+    nodes[opcode] = {"opcode": opcode, "label": label, "ports": ports, "params": params, "description": description, "cls": cls}
     categories[list(categories.keys())[-1]]["nodes"].append(opcode)
 
 
