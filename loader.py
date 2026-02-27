@@ -1,17 +1,18 @@
 import os  # 操作系统模块，用于文件路径操作
 import sys  # 系统模块，用于操作模块缓存
-import importlib  # 动态导入模块的库
+import importlib.util  # 按文件路径动态导入模块的库
 import registry  # 节点注册表模块，用于清空重建
 
 
 def importModule(filepath):
     """
-    示例：importModule("nodes/example.py")  # 会被转换成nodes.example模块并导入
+    示例：importModule("nodes/example.py")  # 按文件路径直接导入模块，不做手工路径转换
     """
-    relative = filepath.replace("\\", "/")  # 把Windows路径的反斜杠替换成正斜杠
-    noExt = relative.replace(".py", "")  # 去掉.py后缀
-    moduleName = noExt.replace("/", ".")  # 把路径分隔符替换成点号，变成模块名格式
-    importlib.import_module(moduleName)  # 使用importlib动态导入这个模块
+    absoluteFilepath = filepath if os.path.isabs(filepath) else os.path.join(os.path.dirname(__file__), filepath)  # 相对路径转绝对路径后再加载
+    moduleName = os.path.splitext(os.path.basename(absoluteFilepath))[0]  # 用文件名生成模块名
+    spec = importlib.util.spec_from_file_location(moduleName, absoluteFilepath)  # 从文件路径创建模块加载规范
+    module = importlib.util.module_from_spec(spec)  # 根据规范创建模块对象
+    spec.loader.exec_module(module)  # 执行模块代码完成导入
 
 
 def loadAll(folder="nodes"):
