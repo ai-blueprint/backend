@@ -15,12 +15,30 @@ engine.py - 蓝图执行引擎
 
 from collections import defaultdict  # 默认字典，用于按目标节点分组边
 
+import torch  # 导入torch用于识别和转换张量
+
 import loader  # 加载器模块，用于加载所有节点
 import registry  # 注册表模块，用于获取节点定义和创建节点实例
 import sort  # 拓扑排序模块，用于确定执行顺序
 
 
 loader.loadAll()  # 初始化时加载所有节点模块，装饰器会自动注册节点
+
+
+def toTensorValues(value):  # 将任意输出递归转换为仅包含张量数值的结构
+    if isinstance(value, torch.Tensor):  # 如果是张量
+        return value.detach().cpu().tolist()  # 转为可JSON发送的纯Python数值
+
+    if isinstance(value, dict):  # 如果是字典
+        return {key: toTensorValues(item) for key, item in value.items()}  # 递归转换每个字段
+
+    if isinstance(value, list):  # 如果是列表
+        return [toTensorValues(item) for item in value]  # 递归转换每个元素
+
+    if isinstance(value, tuple):  # 如果是元组
+        return [toTensorValues(item) for item in value]  # 转为列表并递归转换
+
+    return value  # 其他基础类型原样返回
 
 
 async def run(blueprint, onMessage, onError):  # 异步运行蓝图的主函数
@@ -100,8 +118,14 @@ async def run(blueprint, onMessage, onError):  # 异步运行蓝图的主函数
         # 执行节点的compute方法
         try:  # 尝试执行计算
             output = instance.compute(inputValues)  # 调用实例的compute方法
-            results[nodeId] = output  # 存储输出结果
-            await onMessage(nodeId, "正常")  # 发送成功回调
+            results[nodeId] = output  # 存储完整输出结果供后续节点使用
+
+            frontendOutput = output  # 默认发送完整输出
+            if isinstance(output, dict) and "out" in output:
+                frontendOutput = output.get("out")  # 常见单输出端口仅发送out值
+
+            frontendValues = toTensorValues(frontendOutput)  # 转成仅包含张量数值的结构
+            await onMessage(nodeId, frontendValues)  # 发送节点执行结果到前端
             print(f"节点执行成功: {nodeId}, 输出: {output}")  # 打印执行结果
         except Exception as e:  # 如果执行出错
             await onError(nodeId, f"执行出错: {str(e)}")  # 发送错误回调
