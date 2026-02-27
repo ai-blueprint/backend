@@ -38,4 +38,5 @@ async def runHotReload(broadcast, folder="nodes"):
 
 
 def mountHotReload(loop, broadcast, folder="nodes"):
+    """热重载插件，用于在开发环境下实时监控节点目录变化，自动重载节点注册表，导入挂载就可以了"""
     return loop.create_task(runHotReload(broadcast, folder))  # 挂载后台任务，导入并调用即可启用
