@@ -66,6 +66,9 @@ async def handleMessage(ws, message):
 
     elif msg_type == "runBlueprint":
         blueprint = data["data"].get("blueprint")
+        if not blueprint:
+            await sendError(ws, "runBlueprint", id, "缺少 blueprint 数据")
+            return
         print(f"收到运行蓝图请求: {blueprint}")
 
         # 两个回调把引擎的执行进度实时推送给前端
