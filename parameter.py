@@ -96,6 +96,15 @@ class ParameterTypeBase(ABC):
                 )
             yield True, clamped
 
+    def matchType(self, value: Any) -> bool:
+        return isinstance(
+            value,
+            self.baseType,
+        ) and not isinstance(
+            value,
+            self.conflictType,
+        )
+
     def expectType(
         self,
         value: Any,
@@ -103,7 +112,7 @@ class ParameterTypeBase(ABC):
         key: str,
         defaultValue: Any,
     ) -> Generator[ValidateResult]:
-        if not isinstance(value, self.baseType) or isinstance(value, self.conflictType):
+        if not self.matchType(value):
             yield (
                 False,
                 typeError(
