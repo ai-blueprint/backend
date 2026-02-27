@@ -1,290 +1,144 @@
 文件与具体逻辑
-        main.py
-                启动服务
-                        导入 server 模块
-                        调用 server.start() 启动 WebSocket 服务，默认 0.0.0.0:8765
-        server.py
-                全局变量
-                        clients：已连接的前端客户端集合，用 set 存储
-                sendMessage(ws, type, id, data)
-                        创建消息字典 {type, id, data}
-                        打印消息日志
-                        转成 JSON 字符串
-                        通过 WebSocket 发送给前端
-                sendError(ws, type, id, error)
-                        创建错误消息字典 {type, id, error}
-                        转成 JSON 字符串
-                        通过 WebSocket 发送给前端
-                handleMessage(ws, message)
-                        解析 JSON 消息
-                        提取 type 和 id
-                        如果 type 是 getRegistry
-                                调用 registry.getAllForFrontend() 获取节点注册表
-                                发送响应给前端
-                        如果 type 是 runBlueprint
-                                提取 blueprint 数据
-                                定义 onMessage 回调：发送节点执行结果
-                                定义 onError 回调：发送节点执行错误
-                                调用 engine.run(blueprint, onMessage, onError) 运行蓝图
-                                发送蓝图执行完成消息
-                        如果是未知类型
-                                发送未知消息类型错误
-                handleConnection(ws)
-                        将新连接加入 clients 集合
-                        打印连接信息
-                        循环接收消息
-                                调用 handleMessage 处理每条消息
-                        连接断开时从 clients 移除
-                        打印断开信息
-                broadcast(type, data)
-                        序列化消息
-                        遍历所有客户端
-                                尝试发送消息
-                                忽略发送失败的客户端
-                start(host, port)
-                        打印启动信息
-                        定义异步主函数
-                                创建 WebSocket 服务器，绑定 handleConnection
-                                打印启动成功信息
-                                挂载热重载插件 plugin_hot_reload.mountHotReload(asyncio.get_running_loop(), broadcast)
-                                保持运行（await asyncio.Future()）
-                        运行异步主函数
-        loader.py
-                importModule(filepath)
-                        把 Windows 路径反斜杠替换成正斜杠
-                        去掉.py 后缀
-                        把路径分隔符替换成点号，变成模块名格式
-                        使用 importlib 动态导入模块
-                loadAll(folder)
-                        获取 folder 的绝对路径
-                        递归遍历文件夹下所有文件
-                                过滤并排序目录列表，排除 __pycache__
-                                排序遍历文件列表
-                                        跳过 __init__.py 文件
-                                        跳过非 .py 文件
-                                        计算相对于工程根目录的相对路径
-                                        调用 importModule 动态导入模块
-                                        打印加载信息
-                reloadAll(folder)
-                        调用 registry.clearAll() 清空注册表
-                        遍历 sys.modules 删除所有以 "nodes." 开头的模块缓存
-                        调用 loadAll(folder) 重新加载
-        registry.py
-                全局变量
-                        nodes：节点定义字典 {opcode: node}
-                        categories：分类定义字典 {id: category}
-                        categoriesOrder：分类优先级顺序列表
-                clearAll()
-                        清空 nodes 字典
-                        清空 categories 字典
-                registerCategory(id, label, color, icon)
-                        创建分类字典 {label, color, icon, nodes: []}
-                        存入 categories
-                registerNode(opcode, label, ports, params, description, cls)
-                        创建节点字典 {opcode, label, ports, params, description, cls}
-                        存入 nodes
-                        把 opcode 加入最后一个分类的 nodes 列表
-                validateParams(opcode, params)
-                        获取节点参数定义
-                        如果入参不是字典，使用空字典兜底
-                        创建 validated 字典存储校验结果
-                        遍历定义中的每个参数
-                                获取默认值
-                                前端传值优先，没有就用默认值
-                                兼容旧格式 {value: xxx}
-                                空值回退默认值
-                                选项参数检查是否在允许范围内
-                                        非法选项回退默认值，打印修正日志
-                                数值参数做 range 范围修正
-                                        只对数值做范围修正
-                                        范围配置必须是两个边界值
-                                        执行夹逼修正，打印修正日志
-                                保存当前参数结果
-                        保留定义外的扩展参数
-                                已处理过的键直接跳过
-                                兼容旧格式扩展参数
-                                原样保留扩展参数
-                        返回扁平参数字典
-                getAllForFrontend()
-                        初始化返回结果字典 {categories, nodes}
-                        定义隐藏分类集合 {example_category}
-                        第一步：生成优先级分类列表
-                                按 categoriesOrder 顺序提取存在且非隐藏的分类
-                        第二步：生成剩余分类列表
-                                提取未使用且非隐藏的分类
-                        第三步：拼接列表并转换成字典
-                                遍历合并后的分类列表，过滤掉 cls 属性
-                        第四步：收集所有可见节点的 opcode
-                                遍历可见分类，收集节点 opcode
-                        第五步：构建节点数据
-                                遍历所有节点，跳过隐藏分类下的节点
-                                过滤掉 cls 属性
-                        返回排序后的结果
-                createNode(opcode, nodeId, params)
-                        如果 opcode 不在 nodes 中
-                                抛出 ValueError: 未知节点
-                        调用 validateParams() 校验并修正参数值
-                        获取节点类 cls
-                        创建并返回节点实例
-                category(id, label, color, icon)
-                        装饰器函数
-                        调用 registerCategory 注册分类
-                node(opcode, label, ports, params, description)
-                        装饰器函数
-                        返回 decorator
-                                接收 cls 类
-                                调用 registerNode 注册节点
-                                返回 cls
-                BaseNode 类（继承 nn.Module）
-                        __init__(nodeId, params)
-                                调用父类初始化
-                                保存 nodeId 和 params
-                                调用 build() 方法
-                        build()
-                                空方法，子类可重写用于构建层
-                        compute(input)
-                                抛出 NotImplementedError，子类必须实现
-                        forward(input)
-                                调用 compute(input)
-                                占位，到时候做值存储和转发操作
-                                返回输出结果
-        engine.py
-                初始化
-                        调用 loader.loadAll() 加载所有节点模块
-                run(blueprint, onMessage, onError)
-                        从 blueprint 提取 nodes 和 edges 列表
-                        调用 sort.topoSort(nodes, edges) 获取拓扑排序结果
-                        打印排序结果
-                        构建 nodeMap：节点 id 到节点数据的映射
-                        创建 instances 字典：存储节点实例
-                        创建 results 字典：存储节点输出结果
-                        创建所有节点实例
-                                按拓扑顺序遍历节点 id
-                                        从 nodeMap 获取节点数据
-                                        提取 data.opcode 和 data.params
-                                        检查 opcode 是否已注册
-                                        调用 registry.createNode(opcode, nodeId, params) 创建实例
-                                        存入 instances 字典
-                                        打印创建成功信息
-                                如果创建失败
-                                        调用 onError 回调
-                                        终止执行
-                        按拓扑顺序执行所有节点
-                                预处理：按 target 对 edges 分组，构建 edgesByTarget 字典
-                                        遍历所有 edges
-                                                将每条边追加到 edgesByTarget[edge.target] 列表中
-                                按拓扑顺序遍历节点 id
-                                        从 instances 获取节点实例
-                                        收集当前节点的输入
-                                                从 edgesByTarget 取出以当前节点为目标的所有边
-                                                遍历这些边
-                                                        获取 sourceId = edge.get("source", "")
-                                                        获取 sourcePort = edge.get("sourceHandle", "out")
-                                                        获取 targetPort = edge.get("targetHandle", "in")
-                                                        从 results 获取源节点的输出结果字典
-                                                        获取对应端口的值
-                                                        存入 inputValues 字典
-                                        执行节点的 compute 方法
-                                                调用 instance.compute(inputValues)
-                                                存储输出结果到 results
-                                                调用 onMessage 回调发送"正常"状态
-                                                打印执行成功信息
-                                        如果执行出错
-                                                调用 onError 回调
-                                                打印错误信息
-                                                终止执行
-                        打印蓝图执行完成信息
-                        返回"运行正常"
-        sort.py
-                topoSort(nodes, edges, strict)
-                        创建入度表 inDegree：记录每个节点的入度
-                        创建邻接表 adjacency：记录每个节点的后继节点列表
-                        创建 nodeIds 集合：检查重复节点 id
-                        遍历所有节点
-                                检查重复节点 id
-                                初始化入度为 0
-                                初始化邻接列表为空
-                        遍历所有边
-                                获取 source 和 target
-                                严格模式下检查 source 和 target 是否存在
-                                把 target 加入 source 的邻接列表
-                                target 的入度加 1
-                        创建队列 queue
-                        遍历所有节点
-                                如果入度为 0，加入队列
-                        创建结果列表 result
-                        循环处理队列直到队列为空
-                                弹出队首节点
-                                加入结果列表
-                                遍历当前节点的所有后继节点
-                                        后继节点入度减 1
-                                        如果入度变成 0，加入队列
-                        如果结果数量不等于节点数量
-                                找出仍然有入度的节点（循环依赖中的节点）
-                                排序并转成可读字符串
-                                抛出异常：存在循环依赖，涉及节点：{节点列表}
-                        返回排序结果数组
-        plugin_hot_reload.py
-                runHotReload(broadcast, folder)
-                        延迟导入 watchfiles.awatch，保证不启用插件时不增加主服务启动负担
-                        拼接 nodes 目录绝对路径，明确只监听节点目录
-                        异步循环监听文件变化事件
-                        过滤只保留.py 变化，避免.md、缓存文件改动触发无意义重载
-                        没有.py 变化就 continue，减少无效重建开销
-                        打印变更列表，方便在没有前端时靠后端日志定位热重载行为
-                        重载前对 registry.nodes 和 registry.categories 做快照
-                        调用 loader.reloadAll(folder) 触发全量重建注册表
-                        重建成功后广播 registryUpdated 给所有客户端
-                        广播内容使用 registry.getAllForFrontend()，保证前端拿到过滤后的标准结构
-                        重建失败就打印错误并回滚快照
-                        回滚时先 clear 再 update，避免残留脏节点和脏分类
-                        失败后广播 reloadError 给前端，提示热重载失败原因
-                mountHotReload(loop, broadcast, folder)
-                        通过 loop.create_task 挂载后台协程
-                        返回任务对象，方便后续需要时做任务管理
-        parameter.py
-                类型定义
-                        ValidateResult：验证结果元组 (bool, Any)
-                        RangeTuple：范围元组 (float, float)
-                        TypeGroup：类型组，可以是单个类型或类型元组
-                formatTypeList(typeGroup)
-                        将类型组格式化成可读字符串，用逗号分隔类型名
-                errorMessage(error_type, msg)
-                        创建错误消息字符串，格式：参数{error_type}：{msg}
-                typeError(opcode, key, expected_type, conflict_type, actual_value, defaultValue)
-                        创建类型错误消息
-                        包含期望类型、不接受类型、实际值和默认值
-                boundaryCurrection(opcode, key, value, expected_range, corrected_value)
-                        创建越界修正消息
-                        包含原始值、期望范围和修正后的值
-                invalidOption(opcode, key, value, valid_options, default)
-                        创建无效选项消息
-                        包含原始值、有效选项集合和默认值
-                ParameterTypeBase 类（抽象基类）
-                        __init__(typeName, baseType, conflictType)
-                                保存允许的基础类型
-                                保存冲突类型（需要排除的类型）
-                                保存类型名称
-                        matchType(value)
-                                检查值是否是允许类型且不是冲突类型
-                                返回布尔值
-                        expectType(value, opcode, key, defaultValue)
-                                类型校验，失败时回退默认值
-                                生成 (是否成功，值) 元组
-                        expectRange(value, opcode, key, paramRange)
-                                范围校验，越界时修正到边界
-                                生成 (是否成功，修正后的值) 元组
-                        expectOptions(value, opcode, key, paramOptions, defaultValue)
-                                选项校验，无效选项回退默认值
-                                生成 (是否成功，值) 元组
-                        validate(value, opcode, key, defaultValue, paramRange, paramOptions)
-                                完整验证流程，依次执行类型、范围、选项校验
-                                兼容旧格式 {value: xxx}
-                                打印错误消息
-                                返回 (True, 最终值)
-                        _customValidate(value, opcode, key, defaultValue, paramRange, paramOptions)
-                                抽象方法，子类实现具体验证逻辑
-                                返回 Generator[ValidateResult]
-        util.py
-                putIntoList(data)
-                        将单个值或可迭代对象转成列表
+	main.py
+		启动入口
+			导入 server 模块
+			在 __main__ 分支调用 server.start()，默认启动 ws://0.0.0.0:8765
+	server.py
+		全局变量
+			clients：当前已连接前端客户端集合（set）
+		sendMessage(ws, type, id, data)
+			组装普通消息 {type, id, data}
+			打印发送日志
+			序列化为 JSON 后发给单个客户端
+		sendError(ws, type, id, error)
+			组装错误消息 {type, id, error}
+			序列化为 JSON 后发给单个客户端
+		broadcast(type, data)
+			组装广播消息 {type, data}（无 id）
+			遍历 clients 逐个发送
+			单个客户端发送失败时静默忽略，不中断整体广播
+		handleMessage(ws, message)
+			解析前端 JSON 消息并提取 type / id
+			type = getRegistry
+				调用 registry.getAllForFrontend() 获取前端可见注册表
+				返回同 id 的响应消息
+			type = runBlueprint
+				从 data 中提取 blueprint
+				若缺失 blueprint，立即回错误
+				定义 onMessage 回调，向前端推送 nodeResult
+				定义 onError 回调，向前端推送 nodeError
+				调用 engine.run(blueprint, onMessage, onError)
+				完成后发送 blueprintComplete
+			其他 type
+				返回 unknown 错误
+		handleConnection(ws)
+			新连接加入 clients
+			循环接收客户端消息并分发给 handleMessage
+			连接结束后从 clients 移除
+		start(host, port)
+			启动 websockets.serve(handleConnection, host, port)
+			服务启动后挂载 plugin_hot_reload.mountHotReload(asyncio.get_running_loop(), broadcast)
+			await asyncio.Future() 保持服务常驻
+	engine.py
+		模块初始化
+			导入时执行 loader.loadAll()，加载 nodes 目录并完成节点注册
+		run(blueprint, onMessage, onError)
+			读取 blueprint.nodes 与 blueprint.edges
+			调用 sort.topoSort(nodes, edges) 得到拓扑执行顺序
+			构建 nodeMap（nodeId -> node数据）
+			构建 instances（nodeId -> 节点实例）
+			构建 results（nodeId -> 端口输出字典）
+			预处理 edgesByTarget（targetId -> 入边列表）
+			阶段1：创建节点实例
+				按拓扑序遍历 nodeId
+				读取 data.opcode 与 data.params
+				检查 opcode 是否已注册
+				调用 registry.createNode(opcode, nodeId, params) 创建实例
+				失败时调用 onError 并中断
+			阶段2：执行节点
+				按拓扑序遍历 nodeId
+				从 edgesByTarget 收集当前节点所有输入
+					sourceHandle 默认 out
+					targetHandle 默认 in
+					从 results[sourceId][sourcePort] 取值写入 inputValues[targetPort]
+				调用 instance.compute(inputValues)
+				输出写入 results[nodeId]
+				成功调用 onMessage(nodeId, "正常")
+				失败调用 onError 并中断
+			全部完成后返回 "运行正常"
+	loader.py
+		importModule(filepath)
+			把相对路径转为以当前文件目录为基准的绝对路径
+			使用 importlib.util.spec_from_file_location + exec_module 动态导入
+		loadAll(folder)
+			递归遍历 folder（默认 nodes）
+			过滤 __pycache__
+			仅加载 .py 且跳过 __init__.py
+			目录和文件都按字典序排序，保证加载顺序稳定
+			每个文件通过 importModule 导入，触发装饰器注册
+		reloadAll(folder)
+			调用 registry.clearAll() 清空注册表
+			清理 sys.modules 里前缀为 nodes. 的缓存模块
+			调用 loadAll(folder) 全量重建
+	registry.py
+		全局变量
+			nodes：节点定义映射 {opcode: nodeDef}
+			categories：分类定义映射 {categoryId: categoryDef}
+			categoriesOrder：分类优先级 [base, transform, activation, math]
+		clearAll()
+			清空 nodes 与 categories
+		registerCategory(id, label, color, icon)
+			注册分类并初始化 nodes 列表
+		registerNode(opcode, label, ports, params, description, cls)
+			注册节点定义到 nodes
+			把 opcode 挂到“最近一次注册的分类”的 nodes 列表
+		validateParams(opcode, params)
+			读取节点参数定义，统一输出扁平参数字典
+			非 dict 入参兜底为 {}
+			对每个定义参数执行：默认值合并、旧格式 {value: ...} 兼容、None 回退
+			若有 options 则做选项合法性校验，不合法回退默认值
+			若有 range 且值是数值，则做区间夹逼修正
+			保留定义外扩展参数（同样兼容 {value: ...}）
+		createNode(opcode, nodeId, params)
+			检查 opcode 是否存在
+			先 validateParams，再实例化对应 cls(nodeId, params)
+		getAllForFrontend()
+			结果结构：{categories, nodes}
+			隐藏分类：example_category
+			先按 categoriesOrder 收集存在且可见分类
+			再拼接剩余可见分类
+			categories / nodes 都过滤掉 cls 字段后返回
+		category(...)
+			分类注册辅助函数
+		node(...)
+			节点注册装饰器工厂
+		BaseNode(nn.Module)
+			__init__ 保存 nodeId / params 并调用 build()
+			compute(input) 由子类实现
+			forward(input) 调用 compute(input)
+	sort.py
+		topoSort(nodes, edges, strict=False)
+			建立 inDegree 与 adjacency
+			检查重复 nodeId，重复则报错
+			遍历 edges 构建邻接关系与入度
+				strict=True 时，非法边直接报错
+				strict=False 时，非法边跳过
+			Kahn 算法输出拓扑顺序
+			若结果数量不足，判定存在环并报错
+	plugin_hot_reload.py
+		runHotReload(broadcast, folder)
+			延迟导入 watchfiles.awatch
+			仅监听 nodes 目录
+			只处理 .py 文件变化
+			变更后先对 registry.nodes 与 registry.categories 做深拷贝快照
+			调用 loader.reloadAll(folder) 执行全量重建
+			成功：广播 registryUpdated（内容为 registry.getAllForFrontend()）
+			失败：回滚快照并广播 reloadError
+		mountHotReload(loop, broadcast, folder)
+			通过 loop.create_task 挂载后台热重载协程
+	nodes/*.py
+		通过 category(...) 注册分类，通过 @node(...) 注册节点
+		节点类继承 BaseNode
+		build() 构建需要复用的层/算子
+		compute(input) 执行单节点计算并返回 {端口名: 值}
+		现有节点分类包含：base、transform、activation、attention、normalization、shape、math、loss、example_category（前端默认隐藏）
