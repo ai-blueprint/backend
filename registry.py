@@ -42,25 +42,15 @@ def getAllForFrontend():
     hiddenCategories = {"example_category"}  # 前端默认隐藏的分类集合
 
     # 第一步：生成优先级分类列表
-    priority = [
-        (catId, categories[catId])
-        for catId in categoriesOrder
-        if catId in categories and catId not in hiddenCategories
-    ]  # 按优先级顺序提取存在且非隐藏的分类
+    priority = [(catId, categories[catId]) for catId in categoriesOrder if catId in categories and catId not in hiddenCategories]  # 按优先级顺序提取存在且非隐藏的分类
 
     # 第二步：生成剩余分类列表
     used = set(catId for catId, _ in priority)  # 提取已使用的分类ID集合，用于后续过滤
-    remaining = [
-        (catId, cat)
-        for catId, cat in categories.items()
-        if catId not in used and catId not in hiddenCategories
-    ]  # 提取未使用且非隐藏的分类
+    remaining = [(catId, cat) for catId, cat in categories.items() if catId not in used and catId not in hiddenCategories]  # 提取未使用且非隐藏的分类
 
     # 第三步：拼接列表并转换成字典
     for catId, cat in priority + remaining:  # 遍历合并后的分类列表，先优先级再剩余
-        result["categories"][catId] = {
-            k: v for k, v in cat.items() if k != "cls"
-        }  # 添加分类信息到结果，过滤掉cls属性
+        result["categories"][catId] = {k: v for k, v in cat.items() if k != "cls"}  # 添加分类信息到结果，过滤掉cls属性
 
     # 第四步：收集所有可见节点的opcode
     visibleOpcodes = set()  # 可见节点opcode集合
@@ -71,9 +61,7 @@ def getAllForFrontend():
     for opcode, node in nodes.items():  # 遍历所有节点
         if opcode not in visibleOpcodes:
             continue  # 跳过隐藏分类下的节点
-        result["nodes"][opcode] = {
-            k: v for k, v in node.items() if k != "cls"
-        }  # 添加节点信息到结果，过滤掉cls属性
+        result["nodes"][opcode] = {k: v for k, v in node.items() if k != "cls"}  # 添加节点信息到结果，过滤掉cls属性
 
     return result  # 返回排序后的结果
 
@@ -98,26 +86,18 @@ def validateParams(opcode, params):
 
         options = spec.get("options")  # 选项限制
         if options and value not in options:
-            print(
-                f"参数选项无效：{opcode}.{key}={value}，回退默认值{defaultValue}"
-            )  # 打印修正日志
+            print(f"参数选项无效：{opcode}.{key}={value}，回退默认值{defaultValue}")  # 打印修正日志
             value = defaultValue  # 非法选项回退默认值
 
         paramRange = spec.get("range")  # 范围限制
-        canClamp = isinstance(value, (int, float)) and not isinstance(
-            value, bool
-        )  # 只对数值做范围修正
-        hasRange = (
-            isinstance(paramRange, (list, tuple)) and len(paramRange) == 2
-        )  # 范围配置必须是两个边界值
+        canClamp = isinstance(value, (int, float)) and not isinstance(value, bool)  # 只对数值做范围修正
+        hasRange = isinstance(paramRange, (list, tuple)) and len(paramRange) == 2  # 范围配置必须是两个边界值
         if canClamp and hasRange:
             minValue = paramRange[0]  # 最小边界
             maxValue = paramRange[1]  # 最大边界
             corrected = max(minValue, min(maxValue, value))  # 执行夹逼修正
             if corrected != value:
-                print(
-                    f"参数越界修正：{opcode}.{key}={value}，修正为{corrected}"
-                )  # 打印修正日志
+                print(f"参数越界修正：{opcode}.{key}={value}，修正为{corrected}")  # 打印修正日志
             value = corrected  # 写入修正结果
 
         validated[key] = value  # 保存当前参数结果
