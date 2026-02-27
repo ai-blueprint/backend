@@ -69,16 +69,6 @@ async def handleMessage(ws, message):
         blueprint = data["data"].get("blueprint")  # 提取蓝图数据
         print(f"收到运行蓝图请求: {blueprint}")  # 收到运行蓝图请求: None
 
-        # 前置校验：对每个节点的params做range/type修正
-        for node in blueprint.get("nodes", []):  # 遍历蓝图中所有节点
-            nodeData = node.get("data", {})  # 获取节点数据
-            opcode = nodeData.get("opcode", "")  # 获取节点opcode
-            params = nodeData.get("params", {})  # 获取节点参数
-            if opcode in registry.nodes:  # 仅校验已注册的节点
-                nodeData["params"] = registry.validateParams(
-                    opcode, params
-                )  # 校验并修正参数，写回蓝图
-
         async def onMessage(nodeId, result):  # 定义节点执行完成的回调
             await sendMessage(
                 ws, "nodeResult", id, {"nodeId": nodeId, "result": result}
