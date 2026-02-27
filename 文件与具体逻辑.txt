@@ -23,7 +23,6 @@
                                 发送响应给前端
                         如果 type 是 runBlueprint
                                 提取 blueprint 数据
-                                前置校验：遍历所有节点，调用 registry.validateParams() 修正参数
                                 定义 onMessage 回调：发送节点执行结果
                                 定义 onError 回调：发送节点执行错误
                                 调用 engine.run(blueprint, onMessage, onError) 运行蓝图
@@ -37,17 +36,17 @@
                                 调用 handleMessage 处理每条消息
                         连接断开时从 clients 移除
                         打印断开信息
+                broadcast(type, data)
+                        序列化消息
+                        遍历所有客户端
+                                尝试发送消息
+                                忽略发送失败的客户端
                 start(host, port)
                         打印启动信息
-                        定义 broadcast 函数：广播消息给所有客户端
-                                序列化消息
-                                遍历所有客户端
-                                        尝试发送消息
-                                        忽略发送失败的客户端
                         定义异步主函数
                                 创建 WebSocket 服务器，绑定 handleConnection
                                 打印启动成功信息
-                                挂载热重载插件 plugin_hot_reload.mountHotReload()
+                                挂载热重载插件 plugin_hot_reload.mountHotReload(asyncio.get_running_loop(), broadcast)
                                 保持运行（await asyncio.Future()）
                         运行异步主函数
         loader.py
@@ -57,17 +56,18 @@
                         把路径分隔符替换成点号，变成模块名格式
                         使用 importlib 动态导入模块
                 loadAll(folder)
-                        获取 nodes 文件夹的绝对路径
+                        获取 folder 的绝对路径
                         递归遍历文件夹下所有文件
-                                跳过__pycache__文件夹
-                                跳过__init__.py 文件
-                                跳过非.py 文件
-                                拼接相对路径
-                                调用 importModule 动态导入模块
-                                打印加载信息
+                                过滤并排序目录列表，排除 __pycache__
+                                排序遍历文件列表
+                                        跳过 __init__.py 文件
+                                        跳过非 .py 文件
+                                        计算相对于工程根目录的相对路径
+                                        调用 importModule 动态导入模块
+                                        打印加载信息
                 reloadAll(folder)
                         调用 registry.clearAll() 清空注册表
-                        遍历 sys.modules 删除所有 nodes.*模块缓存
+                        遍历 sys.modules 删除所有以 "nodes." 开头的模块缓存
                         调用 loadAll(folder) 重新加载
         registry.py
                 全局变量
@@ -158,7 +158,7 @@
                         构建 nodeMap：节点 id 到节点数据的映射
                         创建 instances 字典：存储节点实例
                         创建 results 字典：存储节点输出结果
-                        阶段 1：创建所有节点实例
+                        创建所有节点实例
                                 按拓扑顺序遍历节点 id
                                         从 nodeMap 获取节点数据
                                         提取 data.opcode 和 data.params
@@ -169,14 +169,15 @@
                                 如果创建失败
                                         调用 onError 回调
                                         终止执行
-                        阶段 2：按拓扑顺序执行所有节点
+                        按拓扑顺序执行所有节点
+                                预处理：按 target 对 edges 分组，构建 edgesByTarget 字典
+                                        遍历所有 edges
+                                                将每条边追加到 edgesByTarget[edge.target] 列表中
                                 按拓扑顺序遍历节点 id
                                         从 instances 获取节点实例
                                         收集当前节点的输入
-                                                遍历所有 edges
-                                                        获取 targetId = edge.get("target", "")
-                                                        如果 targetId != nodeId
-                                                                跳过这条边
+                                                从 edgesByTarget 取出以当前节点为目标的所有边
+                                                遍历这些边
                                                         获取 sourceId = edge.get("source", "")
                                                         获取 sourcePort = edge.get("sourceHandle", "out")
                                                         获取 targetPort = edge.get("targetHandle", "in")
