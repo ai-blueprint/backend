@@ -14,12 +14,10 @@ server.py - WebSocket服务器
 
 import asyncio  # 异步IO库，用于处理WebSocket的异步操作
 import json  # JSON库，用于消息的序列化和反序列化
-import os  # 操作系统模块，用于路径操作
 import websockets  # WebSocket库，用于创建WebSocket服务器
 
 import registry  # 节点注册表模块，用于获取节点信息
 import engine  # 蓝图执行引擎模块，用于运行蓝图
-import loader  # 节点加载器模块，用于热重载
 
 clients = set()  # 全局变量：已连接的前端客户端集合，用set存储方便增删
 
@@ -77,20 +75,30 @@ async def handleMessage(ws, message):
             opcode = nodeData.get("opcode", "")  # 获取节点opcode
             params = nodeData.get("params", {})  # 获取节点参数
             if opcode in registry.nodes:  # 仅校验已注册的节点
-                nodeData["params"] = registry.validateParams(opcode, params)  # 校验并修正参数，写回蓝图
+                nodeData["params"] = registry.validateParams(
+                    opcode, params
+                )  # 校验并修正参数，写回蓝图
 
         async def onMessage(nodeId, result):  # 定义节点执行完成的回调
-            await sendMessage(ws, "nodeResult", id, {"nodeId": nodeId, "result": result})  # 发送节点结果
+            await sendMessage(
+                ws, "nodeResult", id, {"nodeId": nodeId, "result": result}
+            )  # 发送节点结果
 
         async def onError(nodeId, error):  # 定义节点执行出错的回调
-            await sendError(ws, "nodeError", id, {"nodeId": nodeId, "error": error})  # 发送节点错误
+            await sendError(
+                ws, "nodeError", id, {"nodeId": nodeId, "error": error}
+            )  # 发送节点错误
 
         result = await engine.run(blueprint, onMessage, onError)  # 调用引擎运行蓝图
-        await sendMessage(ws, "blueprintComplete", id, {"result": result})  # 发送蓝图执行完成消息
+        await sendMessage(
+            ws, "blueprintComplete", id, {"result": result}
+        )  # 发送蓝图执行完成消息
         return  # 处理完毕，返回
 
     else:  # 如果是未知消息类型
-        await sendError(ws, "unknown", id, f"未知消息类型：{msg_type}")  # 发送未知消息类型的错误消息
+        await sendError(
+            ws, "unknown", id, f"未知消息类型：{msg_type}"
+        )  # 发送未知消息类型的错误消息
         return
 
 
@@ -119,31 +127,19 @@ def start(host="0.0.0.0", port=8765):
             except Exception:
                 pass  # 忽略发送失败的客户端
 
-    async def watchNodes():  # 监控nodes目录文件变化
-        from watchfiles import awatch  # 延迟导入watchfiles
-        nodesDir = os.path.join(os.path.dirname(__file__), "nodes")  # 获取nodes目录绝对路径
-        print(f"开始监控节点目录: {nodesDir}")  # 打印监控信息
-        async for changes in awatch(nodesDir):  # 异步监控文件变化
-            pyChanges = [c for c in changes if c[1].endswith(".py")]  # 只关注.py文件变化
-            if not pyChanges:  # 没有.py文件变化
-                continue  # 跳过
-            print(f"检测到节点文件变化: {pyChanges}")  # 打印变化信息
-            snapshot = dict(registry.nodes), dict(registry.categories)  # 快照当前registry
-            try:
-                loader.reloadAll()  # 全量重建registry
-                print("热重载完成，广播新registry")  # 打印成功信息
-                await broadcast("registryUpdated", registry.getAllForFrontend())  # 广播给前端
-            except Exception as e:  # 重载失败
-                print(f"热重载失败，回滚: {e}")  # 打印失败信息
-                registry.nodes.clear()  # 清空当前
-                registry.categories.clear()  # 清空当前
-                registry.nodes.update(snapshot[0])  # 回滚nodes
-                registry.categories.update(snapshot[1])  # 回滚categories
-                await broadcast("reloadError", {"error": str(e)})  # 广播错误消息
-
     async def main():  # 定义异步主函数
-        async with websockets.serve(handleConnection, host, port):  # 创建WebSocket服务器
+        async with websockets.serve(
+            handleConnection, host, port
+        ):  # 创建WebSocket服务器
             print(f"WebSocket服务已启动: ws://{host}:{port}")  # 打印启动成功信息
-            await watchNodes()  # 监控nodes目录变化，替代原来的await asyncio.Future()
+
+            # 可拔插热重载：需要时保留下面两行，不需要时注释即可拔出功能
+            import plugin_hot_reload  # 导入热重载插件模块
+
+            plugin_hot_reload.mountHotReload(
+                asyncio.get_running_loop(), broadcast
+            )  # 挂载热重载后台任务
+
+            await asyncio.Future()  # 保持服务常驻运行
 
     asyncio.run(main())  # 运行异步主函数

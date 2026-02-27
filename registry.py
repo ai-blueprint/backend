@@ -79,60 +79,57 @@ def getAllForFrontend():
 
 
 def validateParams(opcode, params):
-    """根据注册定义校验并修正参数值，返回修正后的params
+    """根据注册定义做通用参数校验，统一返回扁平值字典。"""
+    definition = nodes[opcode].get("params", {})  # 获取节点参数定义
+    if not isinstance(params, dict):
+        params = {}  # 入参不是字典时使用空字典兜底
 
-    新版本的实现依赖于各个类型对应的 ``ParameterTypeBase`` 子类。
-    参数类型在 ``params`` 子目录中定义，示例见 ``int.py``。
-    优势：逻辑分散到小模块、测试更简单、后续添加新类型时只需新增文件。
-    """
-    definition = nodes[opcode].get("params", {})  # 获取注册时的参数定义
-    validated = {}  # 校验后的参数字典
+    validated = {}  # 存储校验后的扁平参数
 
-    # 简单的类型->校验器映射，实例化一次即可复用
-    from params import (
-        IntParameter,
-        FloatParameter,
-        BoolParameter,
-        StringParameter,
-        EnumParameter,
-        ListParameter,
-    )
+    for key, spec in definition.items():  # 先遍历定义，保证缺失参数也有默认值
+        defaultValue = spec.get("value")  # 默认值
+        value = params.get(key, defaultValue)  # 前端传值优先，没有就用默认值
 
-    _validators = {
-        "int": IntParameter(),
-        "float": FloatParameter(),
-        "bool": BoolParameter(),
-        "str": StringParameter(),
-        "enum": EnumParameter(),
-        "list": ListParameter(),
-    }
+        if isinstance(value, dict) and "value" in value:
+            value = value.get("value")  # 兼容旧格式参数对象
 
-    for key, value in params.items():  # 遍历前端传来的每个参数
-        if (
-            isinstance(value, dict) and "value" in value
-        ):  # 前端传来的是完整定义字典，提取实际值
-            value = value["value"]  # 取出value字段
+        if value is None:
+            value = defaultValue  # 空值回退默认值
 
-        spec = definition.get(key)  # 获取该参数的注册定义
-        if spec is None:  # 注册定义中不存在此参数，跳过
-            validated[key] = value
-            continue
+        options = spec.get("options")  # 选项限制
+        if options and value not in options:
+            print(
+                f"参数选项无效：{opcode}.{key}={value}，回退默认值{defaultValue}"
+            )  # 打印修正日志
+            value = defaultValue  # 非法选项回退默认值
 
-        paramType = spec.get("type", "")
-        validator = _validators.get(paramType)
-        if validator:
-            _, corrected = validator.validate(
-                value,
-                opcode,
-                key,
-                spec.get("value"),
-                spec.get("range"),
-                spec.get("options"),
-            )
-            validated[key] = corrected
-        else:
-            validated[key] = value
-    return validated
+        paramRange = spec.get("range")  # 范围限制
+        canClamp = isinstance(value, (int, float)) and not isinstance(
+            value, bool
+        )  # 只对数值做范围修正
+        hasRange = (
+            isinstance(paramRange, (list, tuple)) and len(paramRange) == 2
+        )  # 范围配置必须是两个边界值
+        if canClamp and hasRange:
+            minValue = paramRange[0]  # 最小边界
+            maxValue = paramRange[1]  # 最大边界
+            corrected = max(minValue, min(maxValue, value))  # 执行夹逼修正
+            if corrected != value:
+                print(
+                    f"参数越界修正：{opcode}.{key}={value}，修正为{corrected}"
+                )  # 打印修正日志
+            value = corrected  # 写入修正结果
+
+        validated[key] = value  # 保存当前参数结果
+
+    for key, value in params.items():  # 保留定义外的扩展参数，保证参数适配宽容
+        if key in validated:
+            continue  # 已处理过的键直接跳过
+        if isinstance(value, dict) and "value" in value:
+            value = value.get("value")  # 兼容旧格式扩展参数
+        validated[key] = value  # 原样保留扩展参数
+
+    return validated  # 返回扁平参数字典
 
 
 def createNode(opcode, nodeId, params):

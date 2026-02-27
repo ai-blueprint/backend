@@ -27,11 +27,19 @@ category(  # 注册损失函数分类
     opcode="mse_loss",  # 节点操作码
     label="均方误差损失",  # 节点显示名称
     ports={  # 端口定义
-        "input": {"input": "预测值", "target": "目标值"},  # 两个输入端口：预测值和目标值
+        "input": {
+            "input": "预测值",
+            "target": "目标值",
+        },  # 两个输入端口：预测值和目标值
         "output": {"loss": "损失值"},  # 一个输出端口：损失值
     },
     params={  # 参数定义
-        "reduction": {"label": "聚合方式", "type": "enum", "value": "mean", "options": {"mean": "平均值", "sum": "总和", "none": "无聚合"}},  # 损失聚合方式
+        "reduction": {
+            "label": "聚合方式",
+            "type": "enum",
+            "value": "mean",
+            "options": {"mean": "平均值", "sum": "总和", "none": "无聚合"},
+        },  # 损失聚合方式
     },
     description="计算预测值与目标值之间的均方误差损失",  # 节点描述
 )
@@ -46,7 +54,7 @@ class MSELossNode(BaseNode):  # 继承BaseNode
     """
 
     def build(self):  # 构建损失函数
-        reduction = self.params["reduction"]["value"]  # 获取聚合方式
+        reduction = self.params.get("reduction", "mean")  # 获取聚合方式
         self.mse_loss = nn.MSELoss(reduction=reduction)  # 创建MSELoss层
 
     def compute(self, input):  # 计算方法
@@ -60,13 +68,31 @@ class MSELossNode(BaseNode):  # 继承BaseNode
     opcode="cross_entropy_loss",  # 节点操作码
     label="交叉熵损失",  # 节点显示名称
     ports={  # 端口定义
-        "input": {"input": "预测logits", "target": "目标类别"},  # 两个输入端口：预测logits和目标类别
+        "input": {
+            "input": "预测logits",
+            "target": "目标类别",
+        },  # 两个输入端口：预测logits和目标类别
         "output": {"loss": "损失值"},  # 一个输出端口：损失值
     },
     params={  # 参数定义
-        "reduction": {"label": "聚合方式", "type": "enum", "value": "mean", "options": {"mean": "平均值", "sum": "总和", "none": "无聚合"}},  # 损失聚合方式
-        "ignore_index": {"label": "忽略索引", "type": "int", "value": -100, "range": [-1, 65536]},  # 要忽略的目标索引
-        "label_smoothing": {"label": "标签平滑", "type": "float", "value": 0.0, "range": [0, 1]},  # 标签平滑因子
+        "reduction": {
+            "label": "聚合方式",
+            "type": "enum",
+            "value": "mean",
+            "options": {"mean": "平均值", "sum": "总和", "none": "无聚合"},
+        },  # 损失聚合方式
+        "ignore_index": {
+            "label": "忽略索引",
+            "type": "int",
+            "value": -100,
+            "range": [-1, 65536],
+        },  # 要忽略的目标索引
+        "label_smoothing": {
+            "label": "标签平滑",
+            "type": "float",
+            "value": 0.0,
+            "range": [0, 1],
+        },  # 标签平滑因子
     },
     description="多分类问题的标准损失函数，输入为logits",  # 节点描述
 )
@@ -81,9 +107,9 @@ class CrossEntropyLossNode(BaseNode):  # 继承BaseNode
     """
 
     def build(self):  # 构建损失函数
-        reduction = self.params["reduction"]["value"]  # 获取聚合方式
-        ignore_index = self.params["ignore_index"]["value"]  # 获取忽略索引
-        label_smoothing = self.params["label_smoothing"]["value"]  # 获取标签平滑
+        reduction = self.params.get("reduction", "mean")  # 获取聚合方式
+        ignore_index = self.params.get("ignore_index", -100)  # 获取忽略索引
+        label_smoothing = self.params.get("label_smoothing", 0.0)  # 获取标签平滑
         self.ce_loss = nn.CrossEntropyLoss(  # 创建交叉熵损失层
             reduction=reduction,
             ignore_index=ignore_index,
@@ -101,11 +127,19 @@ class CrossEntropyLossNode(BaseNode):  # 继承BaseNode
     opcode="l1_loss",  # 节点操作码
     label="L1损失",  # 节点显示名称
     ports={  # 端口定义
-        "input": {"input": "预测值", "target": "目标值"},  # 两个输入端口：预测值和目标值
+        "input": {
+            "input": "预测值",
+            "target": "目标值",
+        },  # 两个输入端口：预测值和目标值
         "output": {"loss": "损失值"},  # 一个输出端口：损失值
     },
     params={  # 参数定义
-        "reduction": {"label": "聚合方式", "type": "enum", "value": "mean", "options": {"mean": "平均值", "sum": "总和", "none": "无聚合"}},  # 损失聚合方式
+        "reduction": {
+            "label": "聚合方式",
+            "type": "enum",
+            "value": "mean",
+            "options": {"mean": "平均值", "sum": "总和", "none": "无聚合"},
+        },  # 损失聚合方式
     },
     description="计算预测值与目标值之间的L1绝对值误差损失",  # 节点描述
 )
@@ -120,7 +154,7 @@ class L1LossNode(BaseNode):  # 继承BaseNode
     """
 
     def build(self):  # 构建损失函数
-        reduction = self.params["reduction"]["value"]  # 获取聚合方式
+        reduction = self.params.get("reduction", "mean")  # 获取聚合方式
         self.l1_loss = nn.L1Loss(reduction=reduction)  # 创建L1Loss层
 
     def compute(self, input):  # 计算方法
@@ -134,11 +168,19 @@ class L1LossNode(BaseNode):  # 继承BaseNode
     opcode="bce_loss",  # 节点操作码
     label="二分类交叉熵损失",  # 节点显示名称
     ports={  # 端口定义
-        "input": {"input": "预测概率", "target": "目标标签"},  # 两个输入端口：预测概率和目标标签
+        "input": {
+            "input": "预测概率",
+            "target": "目标标签",
+        },  # 两个输入端口：预测概率和目标标签
         "output": {"loss": "损失值"},  # 一个输出端口：损失值
     },
     params={  # 参数定义
-        "reduction": {"label": "聚合方式", "type": "enum", "value": "mean", "options": {"mean": "平均值", "sum": "总和", "none": "无聚合"}},  # 损失聚合方式
+        "reduction": {
+            "label": "聚合方式",
+            "type": "enum",
+            "value": "mean",
+            "options": {"mean": "平均值", "sum": "总和", "none": "无聚合"},
+        },  # 损失聚合方式
         "weight": {"label": "类别权重", "type": "list", "value": [1.0]},  # 各样本的权重
     },
     description="二分类问题的交叉熵损失，输入为概率（需先sigmoid）",  # 节点描述
@@ -154,8 +196,8 @@ class BCELossNode(BaseNode):  # 继承BaseNode
     """
 
     def build(self):  # 构建损失函数
-        reduction = self.params["reduction"]["value"]  # 获取聚合方式
-        weight = self.params["weight"]["value"]  # 获取权重
+        reduction = self.params.get("reduction", "mean")  # 获取聚合方式
+        weight = self.params.get("weight", [1.0])  # 获取权重
         self.bce_loss = nn.BCELoss(reduction=reduction)  # 创建BCELoss层
         if len(weight) > 1 or weight[0] != 1.0:  # 如果有自定义权重
             self.weight_tensor = torch.tensor(weight, dtype=torch.float)  # 创建权重张量
@@ -172,10 +214,12 @@ class BCELossNode(BaseNode):  # 继承BaseNode
             if weight.dim() == 1 and weight.size(0) == input_tensor.size(0):
                 # 扩展权重维度以匹配输入
                 weight = weight.view(-1, *([1] * (input_tensor.dim() - 1)))  # 扩展维度
-                loss = F.binary_cross_entropy(input_tensor, target, weight=weight, reduction="none")  # 无聚合
-                if self.params["reduction"]["value"] == "mean":  # 平均值
+                loss = F.binary_cross_entropy(
+                    input_tensor, target, weight=weight, reduction="none"
+                )  # 无聚合
+                if self.params.get("reduction", "mean") == "mean":  # 平均值
                     loss = loss.mean()
-                elif self.params["reduction"]["value"] == "sum":  # 总和
+                elif self.params.get("reduction", "mean") == "sum":  # 总和
                     loss = loss.sum()
                 return {"loss": loss}  # 返回损失值
             else:

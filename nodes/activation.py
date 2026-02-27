@@ -29,7 +29,11 @@ category(  # 注册激活分类
         "output": {"out": ""},  # 一个输出端口
     },
     params={  # 参数定义
-        "inplace": {"label": "原地操作", "type": "bool", "value": False},  # 是否原地修改
+        "inplace": {
+            "label": "原地操作",
+            "type": "bool",
+            "value": False,
+        },  # 是否原地修改
     },
     description="小于0变0，大于0不变",  # 节点描述
 )
@@ -44,7 +48,7 @@ class ReLUNode(BaseNode):  # 继承BaseNode
 
     def build(self):  # 构建层
         self.relu = nn.ReLU(
-            inplace=self.params["inplace"]["value"],  # 是否原地操作
+            inplace=self.params.get("inplace", False),  # 是否原地操作
         )
 
     def compute(self, input):  # 计算方法
@@ -116,7 +120,12 @@ class TanhNode(BaseNode):  # 继承BaseNode
         "output": {"out": ""},  # 一个输出端口
     },
     params={  # 参数定义
-        "dim": {"label": "维度", "type": "int", "value": -1, "range": [-10, 10]},  # 沿哪个维度做softmax
+        "dim": {
+            "label": "维度",
+            "type": "int",
+            "value": -1,
+            "range": [-10, 10],
+        },  # 沿哪个维度做softmax
     },
     description="转为概率分布，总和为1",  # 节点描述
 )
@@ -132,7 +141,7 @@ class SoftmaxNode(BaseNode):  # 继承BaseNode
 
     def build(self):  # 构建层
         self.softmax = nn.Softmax(  # 创建Softmax层
-            dim=self.params["dim"]["value"],  # 指定维度
+            dim=self.params.get("dim", -1),  # 指定维度
         )
 
     def compute(self, input):  # 计算方法
@@ -149,8 +158,18 @@ class SoftmaxNode(BaseNode):  # 继承BaseNode
         "output": {"out": ""},  # 一个输出端口
     },
     params={  # 参数定义
-        "beta": {"label": "平滑系数", "type": "float", "value": 1.0, "range": [0.01, 100]},  # 控制平滑程度
-        "threshold": {"label": "线性阈值", "type": "float", "value": 20.0, "range": [1, 100]},  # 超过此值退化为线性
+        "beta": {
+            "label": "平滑系数",
+            "type": "float",
+            "value": 1.0,
+            "range": [0.01, 100],
+        },  # 控制平滑程度
+        "threshold": {
+            "label": "线性阈值",
+            "type": "float",
+            "value": 20.0,
+            "range": [1, 100],
+        },  # 超过此值退化为线性
     },
     description="平滑版负数归零，输出恒为正",  # 节点描述
 )
@@ -165,8 +184,8 @@ class SoftplusNode(BaseNode):  # 继承BaseNode
 
     def build(self):  # 构建层
         self.softplus = nn.Softplus(  # 创建Softplus层
-            beta=self.params["beta"]["value"],  # 平滑系数
-            threshold=self.params["threshold"]["value"],  # 线性阈值
+            beta=self.params.get("beta", 1.0),  # 平滑系数
+            threshold=self.params.get("threshold", 20.0),  # 线性阈值
         )
 
     def compute(self, input):  # 计算方法
@@ -183,8 +202,17 @@ class SoftplusNode(BaseNode):  # 继承BaseNode
         "output": {"out": ""},  # 一个输出端口
     },
     params={  # 参数定义
-        "negativeSlope": {"label": "负斜率", "type": "float", "value": 0.01, "range": [0, 1]},  # 负数区域的斜率
-        "inplace": {"label": "原地操作", "type": "bool", "value": False},  # 是否原地修改
+        "negativeSlope": {
+            "label": "负斜率",
+            "type": "float",
+            "value": 0.01,
+            "range": [0, 1],
+        },  # 负数区域的斜率
+        "inplace": {
+            "label": "原地操作",
+            "type": "bool",
+            "value": False,
+        },  # 是否原地修改
     },
     description="负数乘以小斜率而非归零",  # 节点描述
 )
@@ -200,8 +228,8 @@ class LeakyReLUNode(BaseNode):  # 继承BaseNode
 
     def build(self):  # 构建层
         self.leakyRelu = nn.LeakyReLU(  # 创建LeakyReLU层
-            negative_slope=self.params["negativeSlope"]["value"],  # 负斜率
-            inplace=self.params["inplace"]["value"],  # 是否原地操作
+            negative_slope=self.params.get("negativeSlope", 0.01),  # 负斜率
+            inplace=self.params.get("inplace", False),  # 是否原地操作
         )
 
     def compute(self, input):  # 计算方法
@@ -218,8 +246,17 @@ class LeakyReLUNode(BaseNode):  # 继承BaseNode
         "output": {"out": ""},  # 一个输出端口
     },
     params={  # 参数定义
-        "alpha": {"label": "负饱和值", "type": "float", "value": 1.0, "range": [0, 10]},  # 负数区域的饱和值
-        "inplace": {"label": "原地操作", "type": "bool", "value": False},  # 是否原地修改
+        "alpha": {
+            "label": "负饱和值",
+            "type": "float",
+            "value": 1.0,
+            "range": [0, 10],
+        },  # 负数区域的饱和值
+        "inplace": {
+            "label": "原地操作",
+            "type": "bool",
+            "value": False,
+        },  # 是否原地修改
     },
     description="负数用指数曲线平滑过渡",  # 节点描述
 )
@@ -235,8 +272,8 @@ class ELUNode(BaseNode):  # 继承BaseNode
 
     def build(self):  # 构建层
         self.elu = nn.ELU(  # 创建ELU层
-            alpha=self.params["alpha"]["value"],  # 负饱和值
-            inplace=self.params["inplace"]["value"],  # 是否原地操作
+            alpha=self.params.get("alpha", 1.0),  # 负饱和值
+            inplace=self.params.get("inplace", False),  # 是否原地操作
         )
 
     def compute(self, input):  # 计算方法
@@ -253,7 +290,12 @@ class ELUNode(BaseNode):  # 继承BaseNode
         "output": {"out": ""},  # 一个输出端口
     },
     params={  # 参数定义
-        "approximate": {"label": "近似方式", "type": "enum", "value": "none", "options": {"none": "精确计算", "tanh": "tanh近似"}},  # none精确，tanh近似加速
+        "approximate": {
+            "label": "近似方式",
+            "type": "enum",
+            "value": "none",
+            "options": {"none": "精确计算", "tanh": "tanh近似"},
+        },  # none精确，tanh近似加速
     },
     description="用高斯分布加权，Transformer常用",  # 节点描述
 )
@@ -269,7 +311,7 @@ class GELUNode(BaseNode):  # 继承BaseNode
 
     def build(self):  # 构建层
         self.gelu = nn.GELU(  # 创建GELU层
-            approximate=self.params["approximate"]["value"],  # 近似方式
+            approximate=self.params.get("approximate", "none"),  # 近似方式
         )
 
     def compute(self, input):  # 计算方法

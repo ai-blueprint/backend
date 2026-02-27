@@ -185,7 +185,11 @@ class BmmNode(BaseNode):  # 继承BaseNode
         "output": {"out": ""},  # 一个输出端口
     },
     params={  # 参数定义
-        "equation": {"label": "公式", "type": "str", "value": "ij,jk->ik"},  # 爱因斯坦求和公式
+        "equation": {
+            "label": "公式",
+            "type": "str",
+            "value": "ij,jk->ik",
+        },  # 爱因斯坦求和公式
     },
     description="用公式描述任意张量运算",  # 节点描述
 )
@@ -203,7 +207,7 @@ class EinsumNode(BaseNode):  # 继承BaseNode
     def compute(self, input):  # 计算方法
         x = input.get("x")  # 获取输入1
         y = input.get("y")  # 获取输入2
-        equation = self.params["equation"]["value"]  # 获取公式字符串
+        equation = self.params.get("equation", "ij,jk->ik")  # 获取公式字符串
         out = torch.einsum(equation, x, y)  # 爱因斯坦求和
         return {"out": out}  # 返回输出
 
@@ -269,7 +273,12 @@ class DotNode(BaseNode):  # 继承BaseNode
         "output": {"out": ""},  # 一个输出端口
     },
     params={  # 参数定义
-        "exponent": {"label": "指数", "type": "float", "value": 2.0, "range": [-10, 10]},  # 幂次
+        "exponent": {
+            "label": "指数",
+            "type": "float",
+            "value": 2.0,
+            "range": [-10, 10],
+        },  # 幂次
     },
     description="对每个元素做n次方",  # 节点描述
 )
@@ -285,7 +294,7 @@ class PowNode(BaseNode):  # 继承BaseNode
 
     def compute(self, input):  # 计算方法
         x = input.get("x")  # 获取底数
-        exponent = self.params["exponent"]["value"]  # 获取指数
+        exponent = self.params.get("exponent", 2.0)  # 获取指数
         out = torch.pow(x, exponent)  # 幂运算
         return {"out": out}  # 返回输出
 
@@ -298,9 +307,23 @@ class PowNode(BaseNode):  # 继承BaseNode
         "output": {"out": ""},  # 一个输出端口
     },
     params={  # 参数定义
-        "p": {"label": "范数阶数", "type": "float", "value": 2.0, "range": [0, 10]},  # 范数的阶数
-        "dim": {"label": "维度", "type": "int", "value": -1, "range": [-10, 10]},  # 沿哪个维度计算
-        "keepdim": {"label": "保持维度", "type": "bool", "value": False},  # 是否保持维度
+        "p": {
+            "label": "范数阶数",
+            "type": "float",
+            "value": 2.0,
+            "range": [0, 10],
+        },  # 范数的阶数
+        "dim": {
+            "label": "维度",
+            "type": "int",
+            "value": -1,
+            "range": [-10, 10],
+        },  # 沿哪个维度计算
+        "keepdim": {
+            "label": "保持维度",
+            "type": "bool",
+            "value": False,
+        },  # 是否保持维度
     },
     description="计算向量的长度大小",  # 节点描述
 )
@@ -316,9 +339,9 @@ class NormNode(BaseNode):  # 继承BaseNode
 
     def compute(self, input):  # 计算方法
         x = input.get("x")  # 获取输入张量
-        p = self.params["p"]["value"]  # 获取范数阶数
-        dim = self.params["dim"]["value"]  # 获取维度
-        keepdim = self.params["keepdim"]["value"]  # 获取是否保持维度
+        p = self.params.get("p", 2.0)  # 获取范数阶数
+        dim = self.params.get("dim", -1)  # 获取维度
+        keepdim = self.params.get("keepdim", False)  # 获取是否保持维度
         out = torch.norm(x, p=p, dim=dim, keepdim=keepdim)  # 计算范数
         return {"out": out}  # 返回输出
 
@@ -381,8 +404,17 @@ class SqrtNode(BaseNode):  # 继承BaseNode
         "output": {"out": ""},  # 一个输出端口
     },
     params={  # 参数定义
-        "dim": {"label": "维度", "type": "int", "value": -1, "range": [-10, 10]},  # 沿哪个维度求和
-        "keepdim": {"label": "保持维度", "type": "bool", "value": False},  # 是否保持维度
+        "dim": {
+            "label": "维度",
+            "type": "int",
+            "value": -1,
+            "range": [-10, 10],
+        },  # 沿哪个维度求和
+        "keepdim": {
+            "label": "保持维度",
+            "type": "bool",
+            "value": False,
+        },  # 是否保持维度
     },
     description="沿某个维度把元素加起来",  # 节点描述
 )
@@ -398,8 +430,8 @@ class SumNode(BaseNode):  # 继承BaseNode
 
     def compute(self, input):  # 计算方法
         x = input.get("x")  # 获取输入张量
-        dim = self.params["dim"]["value"]  # 获取维度
-        keepdim = self.params["keepdim"]["value"]  # 获取是否保持维度
+        dim = self.params.get("dim", -1)  # 获取维度
+        keepdim = self.params.get("keepdim", False)  # 获取是否保持维度
         out = torch.sum(x, dim=dim, keepdim=keepdim)  # 沿维度求和
         return {"out": out}  # 返回输出
 
@@ -462,8 +494,17 @@ class NegNode(BaseNode):  # 继承BaseNode
         "output": {"out": ""},  # 一个输出端口
     },
     params={  # 参数定义
-        "dim": {"label": "维度", "type": "int", "value": -1, "range": [-10, 10]},  # 沿哪个维度求均值
-        "keepdim": {"label": "保持维度", "type": "bool", "value": False},  # 是否保持维度
+        "dim": {
+            "label": "维度",
+            "type": "int",
+            "value": -1,
+            "range": [-10, 10],
+        },  # 沿哪个维度求均值
+        "keepdim": {
+            "label": "保持维度",
+            "type": "bool",
+            "value": False,
+        },  # 是否保持维度
     },
     description="沿某个维度求平均值",  # 节点描述
 )
@@ -479,7 +520,7 @@ class MeanNode(BaseNode):  # 继承BaseNode
 
     def compute(self, input):  # 计算方法
         x = input.get("x")  # 获取输入张量
-        dim = self.params["dim"]["value"]  # 获取维度
-        keepdim = self.params["keepdim"]["value"]  # 获取是否保持维度
+        dim = self.params.get("dim", -1)  # 获取维度
+        keepdim = self.params.get("keepdim", False)  # 获取是否保持维度
         out = torch.mean(x, dim=dim, keepdim=keepdim)  # 沿维度求均值
         return {"out": out}  # 返回输出
