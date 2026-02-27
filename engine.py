@@ -44,18 +44,14 @@ async def run(blueprint, onMessage, onError):  # 异步运行蓝图的主函数
     sortedIds = sort.topoSort(nodes, edges)  # 调用拓扑排序，得到执行顺序
     print(f"拓扑排序结果: {sortedIds}")  # 打印排序结果用于调试
 
-    nodeMap = {}  # 创建节点id到节点数据的映射字典
-    for node in nodes:  # 遍历所有节点
-        nodeId = node.get("id", "")  # 获取节点id
-        nodeMap[nodeId] = node  # 存入映射字典方便后续查找
+    nodeMap = {node.get("id", ""): node for node in nodes}  # 将节点列表转换为字典，便于按id查找节点数据
 
     instances = {}  # 存储所有节点的实例，格式：{nodeId: BaseNode实例}
     results = {}  # 存储所有节点的输出结果，格式：{nodeId: {port: value}}
 
-    edgesByTarget = defaultdict(list)  # 按目标节点分组所有边，避免重复全量扫描
-    for edge in edges:  # 遍历所有边建立分组索引
-        targetId = edge.get("target", "")  # 读取边的目标节点id
-        edgesByTarget[targetId].append(edge)  # 将边放入目标节点对应的入边列表
+    edgesByTarget = defaultdict(list)  # 将边按目标节点分组，便于查找
+    for edge in edges:
+        edgesByTarget[edge.get("target", "")].append(edge)
 
     # ========== 阶段1：创建所有节点实例 ==========
     print("开始创建节点实例...")  # 打印阶段信息
@@ -74,9 +70,7 @@ async def run(blueprint, onMessage, onError):  # 异步运行蓝图的主函数
             return  # 终止执行
 
         try:  # 尝试创建节点实例
-            instance = registry.createNode(
-                opcode, nodeId, params
-            )  # 调用registry创建实例
+            instance = registry.createNode(opcode, nodeId, params)  # 调用registry创建实例
             instances[nodeId] = instance  # 存入实例字典
             print(f"节点实例创建成功: {nodeId} ({opcode})")  # 打印成功信息
         except Exception as e:  # 如果创建失败
