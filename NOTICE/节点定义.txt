@@ -1,0 +1,403 @@
+节点定义
+        nodes/base.py
+                分类：base（基础）
+                InputNode 输入节点
+                        opcode="input"
+                        ports={input: {}, output: {out: ""}}
+                        params={out_shape: {label, type, value}}
+                        compute(input)
+                                获取 out_shape 参数
+                                返回随机张量 {out: torch.rand(*shape)}
+                OutputNode 输出节点
+                        opcode="output"
+                        ports={input: {in: ""}, output: {}}
+                        compute(input)
+                                获取输入值
+                                打印最终输出
+                                返回空字典
+                DebugNode 调试输出节点
+                        opcode="debug"
+                        ports={input: {x: ""}, output: {out: ""}}
+                        compute(input)
+                                获取输入值 x
+                                打印形状和类型信息
+                                透传输入返回 {out: x}
+        nodes/transform.py
+                分类：transform（变换）
+                LinearNode 全连接层节点
+                        opcode="linear"
+                        ports={input: {x: ""}, output: {out: ""}}
+                        params={in_features, out_features, bias}
+                        build()
+                                创建 nn.Linear 层
+                        compute(input)
+                                获取输入 x
+                                线性变换
+                                返回 {out: 输出}
+                ConvNode 卷积层节点
+                        opcode="conv"
+                        ports={input: {x: ""}, output: {out: ""}}
+                        params={dim, in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, padding_mode}
+                        parseList(raw)
+                                解析 list 参数，兼容单值和逗号分隔
+                        build()
+                                根据 dim 选择 Conv1d/Conv2d/Conv3d
+                                创建卷积层
+                        compute(input)
+                                获取输入 x
+                                卷积运算
+                                返回 {out: 输出}
+        nodes/activation.py
+                分类：activation（激活）
+                ReLUNode 负数归零节点
+                        opcode="relu"
+                        params={inplace}
+                        build()
+                                创建 nn.ReLU 层
+                        compute(input)
+                                ReLU 激活
+                SigmoidNode 压到 0~1 节点
+                        opcode="sigmoid"
+                        build()
+                                创建 nn.Sigmoid 层
+                        compute(input)
+                                Sigmoid 激活
+                TanhNode 压到±1 节点
+                        opcode="tanh"
+                        build()
+                                创建 nn.Tanh 层
+                        compute(input)
+                                Tanh 激活
+                SoftmaxNode 转概率节点
+                        opcode="softmax"
+                        params={dim}
+                        build()
+                                创建 nn.Softmax 层
+                        compute(input)
+                                Softmax 激活
+                SoftplusNode 平滑归正节点
+                        opcode="softplus"
+                        params={beta, threshold}
+                        build()
+                                创建 nn.Softplus 层
+                        compute(input)
+                                Softplus 激活
+                LeakyReLUNode 带泄漏归正节点
+                        opcode="leakyRelu"
+                        params={negativeSlope, inplace}
+                        build()
+                                创建 nn.LeakyReLU 层
+                        compute(input)
+                                LeakyReLU 激活
+                ELUNode 指数归正节点
+                        opcode="elu"
+                        params={alpha, inplace}
+                        build()
+                                创建 nn.ELU 层
+                        compute(input)
+                                ELU 激活
+                GELUNode 高斯归正节点
+                        opcode="gelu"
+                        params={approximate}
+                        build()
+                                创建 nn.GELU 层
+                        compute(input)
+                                GELU 激活
+        nodes/example.py
+                分类：example_category（示例，前端默认隐藏）
+                ExampleNode 示例节点
+                        opcode="example_node"
+                        ports={input: {x, y}, output: {result}}
+                        params
+                                int_param: 整数参数示例，带 range
+                                float_param: 浮点数参数示例，带 range
+                                bool_param: 布尔参数示例
+                                str_param: 字符串参数示例
+                                list_param: 列表参数示例
+                                enum_param: 选项参数示例，带 options
+                        build()
+                                创建 ReLU 激活函数
+                                创建 Linear 层，使用 int_param 和 bool_param 参数
+                        compute(input)
+                                获取输入 x 和 y
+                                通过 Linear 层处理 x+y
+                                通过 ReLU 激活
+                                返回 {result: 激活后的结果}
+        nodes/math.py
+                分类：math（运算）
+                AddNode 加法节点
+                        opcode="add"
+                        ports={input: {x, y}, output: {out}}
+                        compute(input)
+                                torch.add(x, y)
+                SubNode 减法节点
+                        opcode="sub"
+                        ports={input: {x, y}, output: {out}}
+                        compute(input)
+                                torch.sub(x, y)
+                MulNode 乘法节点
+                        opcode="mul"
+                        ports={input: {x, y}, output: {out}}
+                        compute(input)
+                                torch.mul(x, y)
+                DivNode 除法节点
+                        opcode="div"
+                        ports={input: {x, y}, output: {out}}
+                        compute(input)
+                                torch.div(x, y)
+                MatmulNode 矩阵乘节点
+                        opcode="matmul"
+                        ports={input: {x, y}, output: {out}}
+                        compute(input)
+                                torch.matmul(x, y)
+                BmmNode 批量矩阵乘法节点
+                        opcode="bmm"
+                        ports={input: {x, y}, output: {out}}
+                        compute(input)
+                                torch.bmm(x, y)
+                EinsumNode 爱因斯坦求和节点
+                        opcode="einsum"
+                        params={equation}
+                        ports={input: {x, y}, output: {out}}
+                        compute(input)
+                                torch.einsum(equation, x, y)
+                LerpNode 插值节点
+                        opcode="lerp"
+                        ports={input: {x, y, w}, output: {out}}
+                        compute(input)
+                                torch.lerp(x, y, w)
+                DotNode 点积节点
+                        opcode="dot"
+                        ports={input: {x, y}, output: {out}}
+                        compute(input)
+                                torch.dot(x, y)
+                PowNode 幂运算节点
+                        opcode="pow"
+                        params={exponent}
+                        ports={input: {x}, output: {out}}
+                        compute(input)
+                                torch.pow(x, exponent)
+                NormNode 范数节点
+                        opcode="norm"
+                        params={p, dim, keepdim}
+                        ports={input: {x}, output: {out}}
+                        compute(input)
+                                torch.norm(x, p, dim, keepdim)
+                ExpNode 自然指数节点
+                        opcode="exp"
+                        ports={input: {x}, output: {out}}
+                        compute(input)
+                                torch.exp(x)
+                SqrtNode 开方节点
+                        opcode="sqrt"
+                        ports={input: {x}, output: {out}}
+                        compute(input)
+                                torch.sqrt(x)
+                SumNode 求和节点
+                        opcode="sum"
+                        params={dim, keepdim}
+                        ports={input: {x}, output: {out}}
+                        compute(input)
+                                torch.sum(x, dim, keepdim)
+                AbsNode 绝对值节点
+                        opcode="abs"
+                        ports={input: {x}, output: {out}}
+                        compute(input)
+                                torch.abs(x)
+                NegNode 相反数节点
+                        opcode="neg"
+                        ports={input: {x}, output: {out}}
+                        compute(input)
+                                torch.neg(x)
+                MeanNode 均值节点
+                        opcode="mean"
+                        params={dim, keepdim}
+                        ports={input: {x}, output: {out}}
+                        compute(input)
+                                torch.mean(x, dim, keepdim)
+        nodes/normalization.py
+                分类：normalization（归一化）
+                LayerNormNode 层归一化节点
+                        opcode="layer_norm"
+                        params={normalized_shape, eps, elementwise_affine}
+                        build()
+                                创建 nn.LayerNorm 层
+                        compute(input)
+                                层归一化
+                GroupNormNode 组归一化节点
+                        opcode="group_norm"
+                        params={num_groups, num_channels, eps, affine}
+                        build()
+                                创建 nn.GroupNorm 层
+                        compute(input)
+                                分组归一化
+                BatchNormNode 批归一化节点
+                        opcode="batch_norm"
+                        params={dim, num_features, eps, momentum, affine, track_running_stats}
+                        build()
+                                根据 dim 选择 BatchNorm1d/2d/3d
+                                创建 BatchNorm 层
+                        compute(input)
+                                批归一化
+                InstanceNormNode 实例归一化节点
+                        opcode="instance_norm"
+                        params={dim, num_features, eps, momentum, affine, track_running_stats}
+                        build()
+                                根据 dim 选择 InstanceNorm1d/2d/3d
+                                创建 InstanceNorm 层
+                        compute(input)
+                                实例归一化
+                RMSNormNode 均方根归一化节点
+                        opcode="rms_norm"
+                        params={normalized_shape, eps, elementwise_affine}
+                        build()
+                                创建 nn.RMSNorm 层
+                        compute(input)
+                                均方根归一化
+        nodes/attention.py
+                分类：attention（注意力）
+                MultiheadAttentionNode 多头注意力节点
+                        opcode="multihead_attention"
+                        ports={input: {q, k, v}, output: {out, attn_weights}}
+                        params={embed_dim, num_heads, dropout, bias, add_bias_kv, add_zero_attn, kdim, vdim}
+                        build()
+                                创建 nn.MultiheadAttention 层
+                        compute(input)
+                                多头注意力计算
+                                返回 {out, attn_weights}
+                ScaledDotProductAttentionNode 缩放点积注意力节点
+                        opcode="scaled_dot_product_attention"
+                        ports={input: {q, k, v}, output: {out, attn_weights}}
+                        params={dropout, is_causal, scale}
+                        compute(input)
+                                F.scaled_dot_product_attention()
+                                返回 {out, attn_weights}
+                CrossAttentionNode 跨注意力节点
+                        opcode="cross_attention"
+                        ports={input: {q, k, v}, output: {out, attn_weights}}
+                        params={embed_dim, kdim, vdim, num_heads, dropout, bias, project}
+                        build()
+                                获取 embed_dim, kdim, vdim, num_heads, dropout, bias, project 参数
+                                保存 embed_dim, num_heads, project 到实例变量
+                                如果使用投影
+                                        创建 Q 投影层：nn.Linear(embed_dim, embed_dim, bias)
+                                        创建 K 投影层：nn.Linear(kdim, embed_dim, bias)
+                                        创建 V 投影层：nn.Linear(vdim, embed_dim, bias)
+                                否则
+                                        检查 kdim 和 vdim 是否等于 embed_dim
+                                创建输出投影层：nn.Linear(embed_dim, embed_dim, bias)
+                                创建 Dropout（如果 dropout > 0）
+                        compute(input)
+                                获取 Q, K, V 输入张量
+                                如果使用投影
+                                        投影 Q, K, V
+                                获取查询维度 d_k
+                                计算注意力分数：matmul(Q, K.transpose) / (d_k ** 0.5)
+                                应用 softmax 计算注意力权重
+                                应用 Dropout（如果有）
+                                计算加权和：matmul(attn_weights, V)
+                                输出投影
+                                返回 {out, attn_weights}
+        nodes/loss.py
+                分类：loss（损失函数）
+                MSELossNode 均方误差损失节点
+                        opcode="mse_loss"
+                        ports={input: {input, target}, output: {loss}}
+                        params={reduction}
+                        build()
+                                创建 nn.MSELoss 层
+                        compute(input)
+                                计算均方误差损失
+                CrossEntropyLossNode 交叉熵损失节点
+                        opcode="cross_entropy_loss"
+                        ports={input: {input, target}, output: {loss}}
+                        params={reduction, ignore_index, label_smoothing}
+                        build()
+                                创建 nn.CrossEntropyLoss 层
+                        compute(input)
+                                计算交叉熵损失
+                L1LossNode L1 损失节点
+                        opcode="l1_loss"
+                        ports={input: {input, target}, output: {loss}}
+                        params={reduction}
+                        build()
+                                创建 nn.L1Loss 层
+                        compute(input)
+                                计算 L1 损失
+                BCELossNode 二分类交叉熵损失节点
+                        opcode="bce_loss"
+                        ports={input: {input, target}, output: {loss}}
+                        params={reduction, weight}
+                        build()
+                                创建 nn.BCELoss 层
+                                如果有自定义权重
+                                        创建权重张量
+                        compute(input)
+                                获取预测概率和目标标签
+                                如果有自定义权重
+                                        将权重移动到相同设备
+                                        扩展权重维度以匹配输入
+                                        计算加权损失
+                                否则
+                                        使用默认损失
+                                返回损失值
+        nodes/shape.py
+                分类：shape（形状）
+                ReshapeNode 变形节点
+                        opcode="reshape"
+                        params={shape, mode}
+                        ports={input: {x}, output: {out}}
+                        compute(input)
+                                根据 mode 选择 reshape 或 view
+                TransposeNode 交换维度节点
+                        opcode="transpose"
+                        params={dim0, dim1}
+                        ports={input: {x}, output: {out}}
+                        compute(input)
+                                x.transpose(dim0, dim1)
+                PermuteNode 重排维度节点
+                        opcode="permute"
+                        params={dims}
+                        ports={input: {x}, output: {out}}
+                        compute(input)
+                                x.permute(dims)
+                SqueezeNode 压缩维度节点
+                        opcode="squeeze"
+                        params={dim}
+                        ports={input: {x}, output: {out}}
+                        compute(input)
+                                x.squeeze(dim)
+                UnsqueezeNode 扩展维度节点
+                        opcode="unsqueeze"
+                        params={dim}
+                        ports={input: {x}, output: {out}}
+                        compute(input)
+                                x.unsqueeze(dim)
+                FlattenNode 压平节点
+                        opcode="flatten"
+                        params={start_dim, end_dim}
+                        ports={input: {x}, output: {out}}
+                        compute(input)
+                                x.flatten(start_dim, end_dim)
+                UnflattenNode 展开节点
+                        opcode="unflatten"
+                        params={dim, sizes}
+                        ports={input: {x}, output: {out}}
+                        compute(input)
+                                x.unflatten(dim, sizes)
+                PadNode 填充节点
+                        opcode="pad"
+                        params={padding, mode, value}
+                        ports={input: {x}, output: {out}}
+                        compute(input)
+                                F.pad(x, padding, mode, value)
+                DetachNode 断梯度节点
+                        opcode="detach"
+                        ports={input: {x}, output: {out}}
+                        compute(input)
+                                x.detach()
+                CloneNode 克隆节点
+                        opcode="clone"
+                        ports={input: {x}, output: {out}}
+                        compute(input)
+                                x.clone()

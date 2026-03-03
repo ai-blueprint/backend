@@ -1,0 +1,144 @@
+文件与具体逻辑
+	main.py
+		启动入口
+			导入 server 模块
+			在 __main__ 分支调用 server.start()，默认启动 ws://0.0.0.0:8765
+	server.py
+		全局变量
+			clients：当前已连接前端客户端集合（set）
+		sendMessage(ws, type, id, data)
+			组装普通消息 {type, id, data}
+			打印发送日志
+			序列化为 JSON 后发给单个客户端
+		sendError(ws, type, id, error)
+			组装错误消息 {type, id, error}
+			序列化为 JSON 后发给单个客户端
+		broadcast(type, data)
+			组装广播消息 {type, data}（无 id）
+			遍历 clients 逐个发送
+			单个客户端发送失败时静默忽略，不中断整体广播
+		handleMessage(ws, message)
+			解析前端 JSON 消息并提取 type / id
+			type = getRegistry
+				调用 registry.getAllForFrontend() 获取前端可见注册表
+				返回同 id 的响应消息
+			type = runBlueprint
+				从 data 中提取 blueprint
+				若缺失 blueprint，立即回错误
+				定义 onMessage 回调，向前端推送 nodeResult
+				定义 onError 回调，向前端推送 nodeError
+				调用 engine.run(blueprint, onMessage, onError)
+				完成后发送 blueprintComplete
+			其他 type
+				返回 unknown 错误
+		handleConnection(ws)
+			新连接加入 clients
+			循环接收客户端消息并分发给 handleMessage
+			连接结束后从 clients 移除
+		start(host, port)
+			启动 websockets.serve(handleConnection, host, port)
+			服务启动后挂载 plugin_hot_reload.mountHotReload(asyncio.get_running_loop(), broadcast)
+			await asyncio.Future() 保持服务常驻
+	engine.py
+		模块初始化
+			导入时执行 loader.loadAll()，加载 nodes 目录并完成节点注册
+		run(blueprint, onMessage, onError)
+			读取 blueprint.nodes 与 blueprint.edges
+			调用 sort.topoSort(nodes, edges) 得到拓扑执行顺序
+			构建 nodeMap（nodeId -> node数据）
+			构建 instances（nodeId -> 节点实例）
+			构建 results（nodeId -> 端口输出字典）
+			预处理 edgesByTarget（targetId -> 入边列表）
+			阶段1：创建节点实例
+				按拓扑序遍历 nodeId
+				读取 data.opcode 与 data.params
+				检查 opcode 是否已注册
+				调用 registry.createNode(opcode, nodeId, params) 创建实例
+				失败时调用 onError 并中断
+			阶段2：执行节点
+				按拓扑序遍历 nodeId
+				从 edgesByTarget 收集当前节点所有输入
+					sourceHandle 默认 out
+					targetHandle 默认 in
+					从 results[sourceId][sourcePort] 取值写入 inputValues[targetPort]
+				调用 instance.compute(inputValues)
+				输出写入 results[nodeId]
+				成功调用 onMessage(nodeId, "正常")
+				失败调用 onError 并中断
+			全部完成后返回 "运行正常"
+	loader.py
+		importModule(filepath)
+			把相对路径转为以当前文件目录为基准的绝对路径
+			使用 importlib.util.spec_from_file_location + exec_module 动态导入
+		loadAll(folder)
+			递归遍历 folder（默认 nodes）
+			过滤 __pycache__
+			仅加载 .py 且跳过 __init__.py
+			目录和文件都按字典序排序，保证加载顺序稳定
+			每个文件通过 importModule 导入，触发装饰器注册
+		reloadAll(folder)
+			调用 registry.clearAll() 清空注册表
+			清理 sys.modules 里前缀为 nodes. 的缓存模块
+			调用 loadAll(folder) 全量重建
+	registry.py
+		全局变量
+			nodes：节点定义映射 {opcode: nodeDef}
+			categories：分类定义映射 {categoryId: categoryDef}
+			categoriesOrder：分类优先级 [base, transform, activation, math]
+		clearAll()
+			清空 nodes 与 categories
+		registerCategory(id, label, color, icon)
+			注册分类并初始化 nodes 列表
+		registerNode(opcode, label, ports, params, description, cls)
+			注册节点定义到 nodes
+			把 opcode 挂到“最近一次注册的分类”的 nodes 列表
+		validateParams(opcode, params)
+			读取节点参数定义，统一输出扁平参数字典
+			非 dict 入参兜底为 {}
+			对每个定义参数执行：默认值合并、旧格式 {value: ...} 兼容、None 回退
+			若有 options 则做选项合法性校验，不合法回退默认值
+			若有 range 且值是数值，则做区间夹逼修正
+			保留定义外扩展参数（同样兼容 {value: ...}）
+		createNode(opcode, nodeId, params)
+			检查 opcode 是否存在
+			先 validateParams，再实例化对应 cls(nodeId, params)
+		getAllForFrontend()
+			结果结构：{categories, nodes}
+			隐藏分类：example_category
+			先按 categoriesOrder 收集存在且可见分类
+			再拼接剩余可见分类
+			categories / nodes 都过滤掉 cls 字段后返回
+		category(...)
+			分类注册辅助函数
+		node(...)
+			节点注册装饰器工厂
+		BaseNode(nn.Module)
+			__init__ 保存 nodeId / params 并调用 build()
+			compute(input) 由子类实现
+			forward(input) 调用 compute(input)
+	sort.py
+		topoSort(nodes, edges, strict=False)
+			建立 inDegree 与 adjacency
+			检查重复 nodeId，重复则报错
+			遍历 edges 构建邻接关系与入度
+				strict=True 时，非法边直接报错
+				strict=False 时，非法边跳过
+			Kahn 算法输出拓扑顺序
+			若结果数量不足，判定存在环并报错
+	plugin_hot_reload.py
+		runHotReload(broadcast, folder)
+			延迟导入 watchfiles.awatch
+			仅监听 nodes 目录
+			只处理 .py 文件变化
+			变更后先对 registry.nodes 与 registry.categories 做深拷贝快照
+			调用 loader.reloadAll(folder) 执行全量重建
+			成功：广播 registryUpdated（内容为 registry.getAllForFrontend()）
+			失败：回滚快照并广播 reloadError
+		mountHotReload(loop, broadcast, folder)
+			通过 loop.create_task 挂载后台热重载协程
+	nodes/*.py
+		通过 category(...) 注册分类，通过 @node(...) 注册节点
+		节点类继承 BaseNode
+		build() 构建需要复用的层/算子
+		compute(input) 执行单节点计算并返回 {端口名: 值}
+		现有节点分类包含：base、transform、activation、attention、normalization、shape、math、loss、example_category（前端默认隐藏）

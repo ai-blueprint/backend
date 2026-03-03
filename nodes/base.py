@@ -25,12 +25,14 @@ category(  # 注册基础分类
     opcode="input",  # 节点操作码
     label="输入",  # 节点显示名称
     ports={"input": {}, "output": {"out": ""}},  # 端口定义，输入节点没有输入端口
-    params={"out_shape": {"label": "输出形状", "type": "list", "value": [2, 4, 10]}},  # 参数定义
+    params={
+        "out_shape": {"label": "输出形状", "type": "list", "value": [2, 4, 10]}
+    },  # 参数定义
     description="生成随机张量作为输入",  # 节点描述
 )
 class InputNode(BaseNode):  # 继承BaseNode
     def compute(self, input):  # 计算方法
-        shape = self.params.get("out_shape").get("value")  # 使用字典键访问
+        shape = self.params.get("out_shape", [2, 4, 10])  # 读取扁平参数里的输出形状
         return {"out": torch.rand(shape)}  # 返回随机张量
 
 

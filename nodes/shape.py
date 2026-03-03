@@ -1,7 +1,7 @@
 """
 nodes/shape.py - 形状节点组
 
-提供张量形状操作节点：reshape、view、transpose、permute、squeeze、unsqueeze、flatten、unflatten、pad、detach、clone
+提供张量形状操作节点：reshape/view、transpose、permute、squeeze、unsqueeze、flatten、unflatten、pad、detach、clone
 """
 
 import torch  # 导入torch用于张量操作
@@ -30,53 +30,39 @@ category(  # 注册形状分类
         "output": {"out": ""},  # 一个输出端口
     },
     params={  # 参数定义
-        "shape": {"label": "目标形状", "type": "list", "value": [-1]},  # 目标形状，-1表示自动推断
+        "shape": {
+            "label": "目标形状",
+            "type": "list",
+            "value": [-1],
+        },  # 目标形状，-1表示自动推断
+        "mode": {
+            "label": "模式",
+            "type": "enum",
+            "value": "reshape",
+            "options": {"reshape": "reshape", "view": "view"},
+        },  # reshape允许非连续，view要求连续
     },
     description="改变张量形状，元素不变",  # 节点描述
 )
 class ReshapeNode(BaseNode):  # 继承BaseNode
     """
-    reshape形状变换节点
-    用法：改变张量形状，元素总数不变 out = x.reshape(shape)
+    reshape/view形状变换节点
+    用法：改变张量形状，元素总数不变
     调用示例：
         输入 x: shape=[batch, seq_len*heads]
         参数 shape=[0, 8, -1] 其中-1自动推断
+        mode=reshape 允许非连续内存，mode=view 要求连续内存
         输出 out: shape=[batch, 8, seq_len*heads/8]
     """
 
     def compute(self, input):  # 计算方法
         x = input.get("x")  # 获取输入张量
-        shape = self.params["shape"]["value"]  # 获取目标形状
-        out = x.reshape(shape)  # 改变形状
-        return {"out": out}  # 返回输出
-
-
-@node(  # 注册view节点
-    opcode="view",  # 节点操作码
-    label="视图变形",  # 节点显示名称
-    ports={  # 端口定义
-        "input": {"x": ""},  # 一个输入端口
-        "output": {"out": ""},  # 一个输出端口
-    },
-    params={  # 参数定义
-        "shape": {"label": "目标形状", "type": "list", "value": [-1]},  # 目标形状，-1表示自动推断
-    },
-    description="改变形状，需内存连续",  # 节点描述
-)
-class ViewNode(BaseNode):  # 继承BaseNode
-    """
-    view形状变换节点
-    用法：改变张量形状，要求内存连续 out = x.view(shape)
-    调用示例：
-        输入 x: shape=[batch, seq_len, heads*dim]
-        参数 shape=[0, 0, 8, 64] 其中-1自动推断
-        输出 out: shape=[batch, seq_len, 8, 64]
-    """
-
-    def compute(self, input):  # 计算方法
-        x = input.get("x")  # 获取输入张量
-        shape = self.params["shape"]["value"]  # 获取目标形状
-        out = x.view(shape)  # 改变形状（要求连续内存）
+        shape = self.params.get("shape", [-1])  # 获取目标形状
+        mode = self.params.get("mode", "reshape")  # 获取模式
+        if mode == "view":  # view模式要求内存连续
+            out = x.view(shape)  # 连续内存变形
+        else:  # reshape模式
+            out = x.reshape(shape)  # 允许非连续内存变形
         return {"out": out}  # 返回输出
 
 
@@ -88,8 +74,18 @@ class ViewNode(BaseNode):  # 继承BaseNode
         "output": {"out": ""},  # 一个输出端口
     },
     params={  # 参数定义
-        "dim0": {"label": "维度1", "type": "int", "value": 0, "range": [-10, 10]},  # 要交换的第一个维度
-        "dim1": {"label": "维度2", "type": "int", "value": 1, "range": [-10, 10]},  # 要交换的第二个维度
+        "dim0": {
+            "label": "维度1",
+            "type": "int",
+            "value": 0,
+            "range": [-10, 10],
+        },  # 要交换的第一个维度
+        "dim1": {
+            "label": "维度2",
+            "type": "int",
+            "value": 1,
+            "range": [-10, 10],
+        },  # 要交换的第二个维度
     },
     description="交换指定的两个维度",  # 节点描述
 )
@@ -105,8 +101,8 @@ class TransposeNode(BaseNode):  # 继承BaseNode
 
     def compute(self, input):  # 计算方法
         x = input.get("x")  # 获取输入张量
-        dim0 = self.params["dim0"]["value"]  # 获取维度1
-        dim1 = self.params["dim1"]["value"]  # 获取维度2
+        dim0 = self.params.get("dim0", 0)  # 获取维度1
+        dim1 = self.params.get("dim1", 1)  # 获取维度2
         out = x.transpose(dim0, dim1)  # 交换两个维度
         return {"out": out}  # 返回输出
 
@@ -119,7 +115,11 @@ class TransposeNode(BaseNode):  # 继承BaseNode
         "output": {"out": ""},  # 一个输出端口
     },
     params={  # 参数定义
-        "dims": {"label": "维度顺序", "type": "list", "value": [0, 2, 1]},  # 新的维度排列顺序
+        "dims": {
+            "label": "维度顺序",
+            "type": "list",
+            "value": [0, 2, 1],
+        },  # 新的维度排列顺序
     },
     description="自由调整所有维度顺序",  # 节点描述
 )
@@ -135,7 +135,7 @@ class PermuteNode(BaseNode):  # 继承BaseNode
 
     def compute(self, input):  # 计算方法
         x = input.get("x")  # 获取输入张量
-        dims = self.params["dims"]["value"]  # 获取维度顺序
+        dims = self.params.get("dims", [0, 2, 1])  # 获取维度顺序
         out = x.permute(dims)  # 重排维度
         return {"out": out}  # 返回输出
 
@@ -148,7 +148,12 @@ class PermuteNode(BaseNode):  # 继承BaseNode
         "output": {"out": ""},  # 一个输出端口
     },
     params={  # 参数定义
-        "dim": {"label": "维度", "type": "int", "value": -1, "range": [-10, 10]},  # 要去掉的维度
+        "dim": {
+            "label": "维度",
+            "type": "int",
+            "value": -1,
+            "range": [-10, 10],
+        },  # 要去掉的维度
     },
     description="去掉长度为1的维度",  # 节点描述
 )
@@ -164,7 +169,7 @@ class SqueezeNode(BaseNode):  # 继承BaseNode
 
     def compute(self, input):  # 计算方法
         x = input.get("x")  # 获取输入张量
-        dim = self.params["dim"]["value"]  # 获取维度
+        dim = self.params.get("dim", -1)  # 获取维度
         out = x.squeeze(dim)  # 去掉大小为1的维度
         return {"out": out}  # 返回输出
 
@@ -177,7 +182,12 @@ class SqueezeNode(BaseNode):  # 继承BaseNode
         "output": {"out": ""},  # 一个输出端口
     },
     params={  # 参数定义
-        "dim": {"label": "维度", "type": "int", "value": 0, "range": [-10, 10]},  # 要插入的维度位置
+        "dim": {
+            "label": "维度",
+            "type": "int",
+            "value": 0,
+            "range": [-10, 10],
+        },  # 要插入的维度位置
     },
     description="插入一个长度为1的维度",  # 节点描述
 )
@@ -193,7 +203,7 @@ class UnsqueezeNode(BaseNode):  # 继承BaseNode
 
     def compute(self, input):  # 计算方法
         x = input.get("x")  # 获取输入张量
-        dim = self.params["dim"]["value"]  # 获取维度
+        dim = self.params.get("dim", 0)  # 获取维度
         out = x.unsqueeze(dim)  # 插入大小为1的维度
         return {"out": out}  # 返回输出
 
@@ -206,8 +216,18 @@ class UnsqueezeNode(BaseNode):  # 继承BaseNode
         "output": {"out": ""},  # 一个输出端口
     },
     params={  # 参数定义
-        "start_dim": {"label": "起始维度", "type": "int", "value": 1, "range": [-10, 10]},  # 从哪个维度开始压平
-        "end_dim": {"label": "结束维度", "type": "int", "value": -1, "range": [-10, 10]},  # 到哪个维度结束压平
+        "start_dim": {
+            "label": "起始维度",
+            "type": "int",
+            "value": 1,
+            "range": [-10, 10],
+        },  # 从哪个维度开始压平
+        "end_dim": {
+            "label": "结束维度",
+            "type": "int",
+            "value": -1,
+            "range": [-10, 10],
+        },  # 到哪个维度结束压平
     },
     description="多个维度合并成一个",  # 节点描述
 )
@@ -223,8 +243,8 @@ class FlattenNode(BaseNode):  # 继承BaseNode
 
     def compute(self, input):  # 计算方法
         x = input.get("x")  # 获取输入张量
-        start_dim = self.params["start_dim"]["value"]  # 获取起始维度
-        end_dim = self.params["end_dim"]["value"]  # 获取结束维度
+        start_dim = self.params.get("start_dim", 1)  # 获取起始维度
+        end_dim = self.params.get("end_dim", -1)  # 获取结束维度
         out = x.flatten(start_dim, end_dim)  # 压平维度
         return {"out": out}  # 返回输出
 
@@ -237,8 +257,17 @@ class FlattenNode(BaseNode):  # 继承BaseNode
         "output": {"out": ""},  # 一个输出端口
     },
     params={  # 参数定义
-        "dim": {"label": "维度", "type": "int", "value": 1, "range": [-10, 10]},  # 要展开的维度
-        "sizes": {"label": "展开形状", "type": "list", "value": [8, 64]},  # 展开后的形状
+        "dim": {
+            "label": "维度",
+            "type": "int",
+            "value": 1,
+            "range": [-10, 10],
+        },  # 要展开的维度
+        "sizes": {
+            "label": "展开形状",
+            "type": "list",
+            "value": [8, 64],
+        },  # 展开后的形状
     },
     description="一个维度拆成多个",  # 节点描述
 )
@@ -254,8 +283,8 @@ class UnflattenNode(BaseNode):  # 继承BaseNode
 
     def compute(self, input):  # 计算方法
         x = input.get("x")  # 获取输入张量
-        dim = self.params["dim"]["value"]  # 获取维度
-        sizes = self.params["sizes"]["value"]  # 获取展开形状
+        dim = self.params.get("dim", 1)  # 获取维度
+        sizes = self.params.get("sizes", [8, 64])  # 获取展开形状
         out = x.unflatten(dim, sizes)  # 展开维度
         return {"out": out}  # 返回输出
 
@@ -268,9 +297,28 @@ class UnflattenNode(BaseNode):  # 继承BaseNode
         "output": {"out": ""},  # 一个输出端口
     },
     params={  # 参数定义
-        "padding": {"label": "填充量", "type": "list", "value": [0, 0, 0, 0]},  # 各维度的填充量
-        "mode": {"label": "填充模式", "type": "enum", "value": "constant", "options": {"constant": "常数填充", "reflect": "反射填充", "replicate": "复制填充", "circular": "循环填充"}},  # 填充模式
-        "value": {"label": "填充值", "type": "float", "value": 0.0, "range": [-1e6, 1e6]},  # 常数填充时的值
+        "padding": {
+            "label": "填充量",
+            "type": "list",
+            "value": [0, 0, 0, 0],
+        },  # 各维度的填充量
+        "mode": {
+            "label": "填充模式",
+            "type": "enum",
+            "value": "constant",
+            "options": {
+                "constant": "常数填充",
+                "reflect": "反射填充",
+                "replicate": "复制填充",
+                "circular": "循环填充",
+            },
+        },  # 填充模式
+        "value": {
+            "label": "填充值",
+            "type": "float",
+            "value": 0.0,
+            "range": [-1e6, 1e6],
+        },  # 常数填充时的值
     },
     description="在边缘补值，用于对齐",  # 节点描述
 )
@@ -286,9 +334,9 @@ class PadNode(BaseNode):  # 继承BaseNode
 
     def compute(self, input):  # 计算方法
         x = input.get("x")  # 获取输入张量
-        padding = self.params["padding"]["value"]  # 获取填充量
-        mode = self.params["mode"]["value"]  # 获取填充模式
-        value = self.params["value"]["value"]  # 获取填充值
+        padding = self.params.get("padding", [0, 0, 0, 0])  # 获取填充量
+        mode = self.params.get("mode", "constant")  # 获取填充模式
+        value = self.params.get("value", 0.0)  # 获取填充值
         out = F.pad(x, padding, mode=mode, value=value)  # 边缘填充
         return {"out": out}  # 返回输出
 

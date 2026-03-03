@@ -4,6 +4,7 @@ sort.py - 拓扑排序
 用法：
     import sort
     sortedIds = sort.topoSort(nodes, edges)  # 获取拓扑排序后的节点id列表
+    sortedIds = sort.topoSort(nodes, edges, strict=True)  # 严格模式下遇到非法边会直接报错
 
 示例：
     nodes = [{"id": "a"}, {"id": "b"}, {"id": "c"}]
@@ -11,50 +12,48 @@ sort.py - 拓扑排序
     result = sort.topoSort(nodes, edges)  # 返回["a", "b", "c"]
 """
 
-from collections import deque  # 双端队列，用于BFS
+from collections import deque
 
 
-def topoSort(nodes, edges):
-    inDegree = {}  # 入度表，记录每个节点有多少个前置节点
-    adjacency = {}  # 邻接表，记录每个节点指向哪些后继节点
+# 由于这个是工具函数，只需要使用，不需要了解原理，所以这里不添加详细注释
+def topoSort(nodes, edges, strict=False):
+    inDegree = {}
+    adjacency = {}
+    seen = set()
 
-    for node in nodes:  # 遍历所有节点
-        nodeId = node.get("id", "")  # 获取节点id
-        inDegree[nodeId] = 0  # 初始化入度为0
-        adjacency[nodeId] = []  # 初始化邻接列表为空
+    for node in nodes:
+        nodeId = node.get("id", "")
+        if nodeId in seen:
+            raise Exception(f"存在重复节点ID，无法进行拓扑排序: {nodeId}")
+        seen.add(nodeId)
+        inDegree[nodeId] = 0
+        adjacency[nodeId] = []
 
-    for edge in edges:  # 遍历所有边
-        source = edge.get("source", "")  # 获取边的源节点
-        target = edge.get("target", "")  # 获取边的目标节点
+    for edge in edges:
+        source = edge.get("source", "")
+        target = edge.get("target", "")
 
-        if source not in adjacency:  # 如果源节点不在邻接表中
-            continue  # 跳过这条边
+        if source not in adjacency or target not in inDegree:
+            if strict:
+                raise Exception(f"存在非法边: {source} -> {target}")
+            continue
 
-        if target not in inDegree:  # 如果目标节点不在入度表中
-            continue  # 跳过这条边
+        adjacency[source].append(target)
+        inDegree[target] += 1
 
-        adjacency[source].append(target)  # 把目标节点加入源节点的邻接列表
-        inDegree[target] = inDegree[target] + 1  # 目标节点的入度加1
+    queue = deque(nodeId for nodeId, deg in inDegree.items() if deg == 0)
+    result = []
 
-    queue = deque()  # 创建队列，用于BFS
+    while queue:
+        current = queue.popleft()
+        result.append(current)
+        for neighbor in adjacency[current]:
+            inDegree[neighbor] -= 1
+            if inDegree[neighbor] == 0:
+                queue.append(neighbor)
 
-    for nodeId in inDegree:  # 遍历所有节点
-        if inDegree[nodeId] == 0:  # 如果节点入度为0
-            queue.append(nodeId)  # 加入队列
+    if len(result) != len(inDegree):
+        cycleNodes = sorted(nodeId for nodeId, deg in inDegree.items() if deg > 0)
+        raise Exception(f"存在循环依赖，涉及节点: {','.join(cycleNodes)}")
 
-    result = []  # 结果列表，存储排序后的节点id
-
-    while len(queue) > 0:  # 循环处理队列直到队列为空
-        current = queue.popleft()  # 弹出队首节点
-        result.append(current)  # 加入结果列表
-
-        for neighbor in adjacency[current]:  # 遍历当前节点的所有后继节点
-            inDegree[neighbor] = inDegree[neighbor] - 1  # 后继节点入度减1
-
-            if inDegree[neighbor] == 0:  # 如果后继节点入度变成0
-                queue.append(neighbor)  # 加入队列
-
-    if len(result) != len(nodes):  # 如果结果数量不等于节点数量
-        raise Exception("存在循环依赖，无法进行拓扑排序")  # 抛出异常
-
-    return result  # 返回排序结果数组
+    return result
