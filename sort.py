@@ -33,9 +33,14 @@ def topoSort(nodes, edges, strict=False):
         source = edge.get("source", "")
         target = edge.get("target", "")
 
-        if source not in adjacency or target not in inDegree:
+        if source not in adjacency:
             if strict:
-                raise Exception(f"存在非法边: {source} -> {target}")
+                raise Exception(f"源节点不存在: {source}")
+            continue
+
+        if target not in inDegree:
+            if strict:
+                raise Exception(f"目标节点不存在: {target}")
             continue
 
         adjacency[source].append(target)
