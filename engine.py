@@ -1,8 +1,8 @@
 """
 engine.py - 持久蓝图模型与图执行指令
 
-BlueprintModel 在编译阶段把节点放入 ModuleDict，随后由同一组参数完成预览、训练、
-跑分和导出。forward 接收按输入节点 ID 命名的值，返回按输出节点 ID 命名的值。
+BlueprintModel 在编译阶段把输入可达节点放入 ModuleDict，随后逐节点传播随机张量。
+forward 接收按输入节点 ID 命名的值，返回按输出节点 ID 命名的值。
 调用示例：model = compileBlueprint(blueprint); outputs = model({"input-1": tensor})
 """
 
@@ -34,6 +34,41 @@ class BlueprintError(Exception):
         return {"code": self.code, "message": str(self), "details": self.details}  # 输出协议可直接序列化的数据
 
 
+# --- 筛选所有能接收到输入传播的节点 ---
+def selectActiveGraph(nodes, edges):
+    sort.topoSort(nodes, [], strict=True)  # 校验重复节点ID，但不让断开区域的循环影响实验路径
+    nodeData = {node.get("id", ""): node for node in nodes}  # 建立完整节点索引用于校验边和读取类型
+    for edge in edges:
+        sourceID = edge.get("source", "")  # 读取边的来源节点
+        targetID = edge.get("target", "")  # 读取边的目标节点
+        if sourceID not in nodeData:
+            raise BlueprintError("invalidEdge", f"源节点不存在: {sourceID}", {"source": sourceID, "target": targetID})  # 悬空来源不能进入路径分析
+        if targetID not in nodeData:
+            raise BlueprintError("invalidEdge", f"目标节点不存在: {targetID}", {"source": sourceID, "target": targetID})  # 悬空目标不能进入路径分析
+
+    inputIDs = {nodeID for nodeID, node in nodeData.items() if node.get("data", {}).get("opcode") == "input"}  # 输入节点是传播起点
+    if not inputIDs:
+        raise BlueprintError("missingExperimentPath", "蓝图必须包含Input节点")  # 实时传播必须有随机张量起点
+
+    outgoing = defaultdict(list)  # 保存每个节点可继续传播到的下游
+    for edge in edges:
+        outgoing[edge.get("source", "")].append(edge.get("target", ""))  # 建立正向邻接关系
+
+    reachableFromInput = set(inputIDs)  # 从所有输入节点开始向前搜索
+    pendingIDs = list(inputIDs)  # 使用显式队列保持数据流易追踪
+    for nodeID in pendingIDs:
+        for targetID in outgoing.get(nodeID, []):
+            if targetID in reachableFromInput:
+                continue  # 已访问节点无需重复加入队列
+            reachableFromInput.add(targetID)  # 标记节点确实接收到输入传播
+            pendingIDs.append(targetID)  # 继续搜索它的下游
+
+    activeIDs = reachableFromInput  # 输入自身及其全部下游都参与传播，不要求分支最终连接Output
+    activeNodes = [node for node in nodes if node.get("id", "") in activeIDs]  # 保留原蓝图节点顺序
+    activeEdges = [edge for edge in edges if edge.get("source", "") in activeIDs and edge.get("target", "") in activeIDs]  # 只保留输入可达区域内部连线
+    return activeNodes, activeEdges  # 编译器后续看不到没有输入来源的节点
+
+
 class BlueprintModel(nn.Module):
     """按拓扑顺序路由端口，并通过 ModuleDict 持久拥有全部节点参数。"""
 
@@ -43,9 +78,10 @@ class BlueprintModel(nn.Module):
         if not isinstance(blueprint, dict):
             raise BlueprintError("invalidBlueprint", "blueprint必须是对象")  # 图结构不是对象时无法继续编译
 
-        self.blueprint = blueprint  # 保留原始定义供检查点和导出落盘
-        self.nodes = blueprint.get("nodes", [])  # 节点数据决定模型包含哪些模块
-        self.edges = blueprint.get("edges", [])  # 边数据决定端口之间如何传值
+        self.blueprint = blueprint  # 保留原始定义供实验信息追踪
+        allNodes = blueprint.get("nodes", [])  # 读取画布全部节点，其中可能包含断开的教学草稿
+        allEdges = blueprint.get("edges", [])  # 读取画布全部连线用于输入可达性分析
+        self.nodes, self.edges = selectActiveGraph(allNodes, allEdges)  # 裁剪为输入节点能够传播到的全部下游
         self.sortedIDs = sort.topoSort(self.nodes, self.edges, strict=True)  # 严格排序尽早拒绝悬空边
         self.nodeData = {node.get("id", ""): node for node in self.nodes}  # 建立节点 ID 到配置的显式索引
         self.edgesByTarget = defaultdict(list)  # 按目标节点保存边，执行时只读取相关输入
@@ -61,11 +97,8 @@ class BlueprintModel(nn.Module):
             nodeModules[moduleKey] = self._createNode(nodeID, node)  # 创建一次，后续运行复用同一参数
         self.nodeModules = nn.ModuleDict(nodeModules)  # 将所有可学习参数注册进 PyTorch 模型树
 
-        self.inputIDs = [nodeID for nodeID in self.sortedIDs if self._getOpcode(nodeID) == "input"]  # 显式输入由输入节点 ID 标识
-        self.outputIDs = [nodeID for nodeID in self.sortedIDs if self._getOpcode(nodeID) == "output"]  # 显式输出由输出节点 ID 标识
-        if not self.outputIDs:
-            sourceIDs = {edge.get("source", "") for edge in self.edges}  # 找出仍向下游供值的节点
-            self.outputIDs = [nodeID for nodeID in self.sortedIDs if nodeID not in sourceIDs]  # 无输出节点时使用叶节点兼容旧蓝图
+        self.inputIDs = [nodeID for nodeID in self.sortedIDs if self._getOpcode(nodeID) == "input"]  # 包含所有随机传播起点
+        self.outputIDs = [nodeID for nodeID in self.sortedIDs if self._getOpcode(nodeID) == "output"]  # 只包含真正接到输入的输出节点
 
         self.lastNodeResults = {}  # 保存最近一次完整端口结果，预览回调和调试可读取
         self.lastNodeDurations = {}  # 保存最近一次逐节点耗时，结构化反馈统一消费
@@ -193,8 +226,8 @@ def parseTensor(value):
 
 
 # --- 有界序列化张量和普通值 ---
-def serializeValue(value, maxValues=256):
-    maxValues = max(1, min(int(maxValues), 4096))  # 限制预览大小，避免单条消息耗尽内存
+def serializeValue(value, maxValues=65536):
+    maxValues = max(1, min(int(maxValues), 65536))  # 最多保留256×256个方块，兼顾完整观察和消息体积
     if isinstance(value, torch.Tensor):
         detached = value.detach()  # 反馈数据不应继续持有反向图
         flatValues = detached.cpu().reshape(-1)  # 移到 CPU 后按一维截取固定数量
@@ -203,7 +236,7 @@ def serializeValue(value, maxValues=256):
             "kind": "tensor",  # 前端按稳定类型选择标量、矩阵或高维预览
             "shape": list(detached.shape),  # 原始形状帮助前端理解完整张量
             "dtype": str(detached.dtype).removeprefix("torch."),  # 返回可用于输入协议的 dtype 名称
-            "device": str(detached.device),  # 返回执行设备便于性能诊断
+            "device": str(detached.device),  # 返回执行设备供结果结构保持完整
             "values": shownValues,  # 始终使用扁平有界值，避免嵌套大数组
             "truncated": detached.numel() > maxValues,  # 明确提示 values 是否只是一部分
             "totalElements": detached.numel(),  # 完整元素数量帮助前端解释截断比例
@@ -221,27 +254,51 @@ def serializeValue(value, maxValues=256):
 
 
 # --- 异步运行预览并反馈节点结果 ---
-async def run(blueprint, onMessage, onError, inputs=None, maxValues=256, compiledModel=None):
+async def run(blueprint, onMessage, onError, inputs=None, maxValues=65536, compiledModel=None):
     startedAt = time.perf_counter()  # 蓝图总耗时从编译前开始计算
     try:
-        model = compiledModel or compileBlueprint(blueprint)  # 会话模型保留训练或加载权重，普通预览按需编译
+        model = compiledModel or compileBlueprint(blueprint)  # 默认按当前蓝图编译，也允许内部测试复用现有模型
         model.eval()  # 预览默认关闭 dropout 等训练随机行为
-        pendingReports = []  # 同步 forward 先收集结果，再按异步回调顺序发送
-
-        def collectResult(nodeID, outputValues, durationMs):
-            pendingReports.append((nodeID, outputValues, durationMs))  # 保留全部输出端口和节点耗时
-
+        modelInputs = validateModelInputs(model, parseInputs(inputs))  # 输入名称必须对应显式InputNode
+        nodeResults = {}  # 当前轮次保存已经传播完成的节点端口值
+        nodeDurations = {}  # 当前轮次保存逐节点耗时
+        errorCount = 0  # 节点错误只影响自身和依赖它的下游，不终止其他分支
         with torch.no_grad():
-            modelInputs = validateModelInputs(model, parseInputs(inputs))  # 输入名称必须对应显式InputNode
-            modelOutputs = model(modelInputs, collectResult)  # 无梯度预览降低内存占用
-        for nodeID, outputValues, durationMs in pendingReports:
-            opcode = model.nodeData[nodeID].get("data", {}).get("opcode", "")  # 节点类型随结果返回，前端无需反查易变化的注册表
-            report = {"opcode": opcode, "outputs": serializeValue(outputValues, maxValues), "durationMs": durationMs}  # 每个节点返回所有端口
-            callbackResult = onMessage(nodeID, report)  # 触发节点完成反馈
-            if inspect.isawaitable(callbackResult):
-                await callbackResult  # 异步 WebSocket 回调按拓扑顺序完成
+            for nodeID in model.sortedIDs:
+                incomingEdges = model.edgesByTarget.get(nodeID, [])  # 读取当前节点全部上游连线
+                if any(edge.get("source", "") not in nodeResults for edge in incomingEdges):
+                    continue  # 任一上游没有结果时跳过当前节点，下游也会自然保持无值
+                nodeStartedAt = time.perf_counter()  # 单独记录当前节点计算耗时
+                try:
+                    inputValues = model._collectInputs(nodeID, nodeResults, modelInputs)  # 只读取已经完成的上游节点结果
+                    if model._getOpcode(nodeID) != "input" and any(value is None for value in inputValues.values()):
+                        continue  # 上游明确返回空值时不调用当前节点
+                    outputValues = model.nodeModules[model.moduleKeys[nodeID]](inputValues)  # 执行当前节点后再进入下游
+                    if not isinstance(outputValues, dict):
+                        raise BlueprintError("invalidNodeOutput", "节点输出必须是端口对象", {"nodeId": nodeID})  # 图路由依赖命名端口
+                except Exception as error:
+                    nodeError = error if isinstance(error, BlueprintError) else BlueprintError("nodeExecutionFailed", f"节点执行失败: {error}", {"nodeId": nodeID, "opcode": model._getOpcode(nodeID)})
+                    callbackResult = onError(nodeID, nodeError.toData())  # 错误只标记当前节点
+                    if inspect.isawaitable(callbackResult):
+                        await callbackResult  # 错误图标先更新，再继续计算其他独立分支
+                    errorCount += 1
+                    continue
+                durationMs = (time.perf_counter() - nodeStartedAt) * 1000  # 计算完成后立即得到本节点耗时
+                nodeResults[nodeID] = outputValues  # 先写入数据流供下一节点读取
+                nodeDurations[nodeID] = durationMs  # 保存最近一次节点耗时
+                opcode = model.nodeData[nodeID].get("data", {}).get("opcode", "")  # 节点类型随结果返回
+                report = {"opcode": opcode, "outputs": serializeValue(outputValues, maxValues), "durationMs": durationMs}  # 序列化当前节点全部张量端口
+                callbackResult = onMessage(nodeID, report)  # 当前节点计算完成后立即反馈，不等待整图结束
+                if inspect.isawaitable(callbackResult):
+                    await callbackResult  # WebSocket发送完成后再计算下游节点
+
+        model.lastNodeResults = nodeResults  # 完整传播结束后保存最近结果
+        model.lastNodeDurations = nodeDurations  # 完整传播结束后保存最近耗时
+        completedOutputIDs = [nodeID for nodeID in model.outputIDs if nodeID in nodeResults]  # 只汇总本轮真正收到上游值的Output节点
+        modelOutputs = {nodeID: model._getOutputValue(nodeID, nodeResults[nodeID]) for nodeID in completedOutputIDs}  # 跳过依赖错误节点的Output
         durationMs = (time.perf_counter() - startedAt) * 1000  # 编译和执行都计入用户感知耗时
-        return {"status": "succeeded", "outputs": serializeValue(modelOutputs, maxValues), "outputNodeIds": model.outputIDs, "errorCount": 0, "durationMs": durationMs}  # 唯一成功终态数据
+        status = "completedWithErrors" if errorCount else "succeeded"  # 局部错误仍视为本轮已完成，可继续下一轮
+        return {"status": status, "outputs": serializeValue(modelOutputs, maxValues), "outputNodeIds": completedOutputIDs, "errorCount": errorCount, "durationMs": durationMs}  # 返回本轮完整终态
     except Exception as error:
         blueprintError = error if isinstance(error, BlueprintError) else BlueprintError("blueprintFailed", str(error))  # 未分类异常统一收口
         callbackResult = onError(blueprintError.details.get("nodeId", ""), blueprintError.toData())  # 流式反馈结构化错误

@@ -35,7 +35,7 @@ class InputNode(BaseNode):  # 继承BaseNode
         if "value" in input:
             return {"out": input["value"]}  # 显式模型输入优先，训练和导出不会被随机值覆盖
         shape = self.params.get("out_shape", [2, 4, 10])  # 读取扁平参数里的输出形状
-        return {"out": torch.rand(shape)}  # 返回随机张量
+        return {"out": torch.rand(shape) * 2 - 1}  # 返回[-1, 1)均匀分布随机张量
 
 
 @node(  # 注册输出节点

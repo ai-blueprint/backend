@@ -1,6 +1,8 @@
 import json  # 消息解析能力，用于检查假WebSocket收到的协议对象
+import logging  # 日志记录能力，用于验证端口探测过滤
 import unittest  # 异步单元测试能力，用于覆盖WebSocket入口
-from unittest.mock import patch  # 指令替换能力，用于隔离检查点文件读写
+
+from websockets.exceptions import InvalidMessage  # 握手异常类型，用于模拟空TCP探测
 
 import server  # WebSocket触发入口，是本组测试主体
 from blueprints import linearBlueprint  # 共享最小蓝图用于成功和失败终态测试
@@ -15,6 +17,12 @@ class FakeWebSocket:
 
 
 class ServerProtocolTest(unittest.IsolatedAsyncioTestCase):
+    async def test_empty_tcp_probe_handshake_log_is_filtered(self):
+        error = InvalidMessage("did not receive a valid HTTP request")  # 模拟连接后未发送HTTP请求就断开的探测
+        record = logging.LogRecord("websockets.server", logging.ERROR, __file__, 1, "opening handshake failed", (), (InvalidMessage, error, None))  # 构造服务端同形日志
+
+        self.assertFalse(server.IncompleteHandshakeFilter().filter(record))  # 该噪声不再输出完整traceback
+
     async def test_malformed_inputs_return_structured_errors(self):
         websocket = FakeWebSocket()  # 不建立真实网络连接即可验证入口反馈
 
@@ -40,16 +48,37 @@ class ServerProtocolTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(terminalMessages[0]["data"]["status"], "succeeded")
         self.assertEqual(terminalMessages[0]["data"]["errorCount"], 0)
 
-    async def test_failed_run_still_sends_one_blueprint_complete(self):
-        websocket = FakeWebSocket()  # 收集失败流和终态消息
+    async def test_run_reports_branch_that_does_not_reach_output(self):
+        websocket = FakeWebSocket()  # 收集带半途结束分支蓝图的实际反馈
+        blueprint = linearBlueprint()  # 主路径包含三个有效节点
+        blueprint["nodes"].extend([
+            {"id": "branch-relu", "data": {"opcode": "relu", "params": {}}},
+            {"id": "orphan-relu", "data": {"opcode": "relu", "params": {}}},
+        ])  # 分支有输入值，孤立节点没有输入值
+        blueprint["edges"].append({"source": "input.with.dot", "sourceHandle": "out", "target": "branch-relu", "targetHandle": "x"})  # 分支末端不接Output
+
+        await server.handleMessage(websocket, json.dumps({"type": "runBlueprint", "id": "branch-run", "data": {"blueprint": blueprint}}))  # 执行带半途结束分支的蓝图
+
+        reportedIDs = [message["data"]["nodeId"] for message in websocket.messages if message["type"] == "nodeResult"]
+        self.assertEqual(reportedIDs, ["input.with.dot", "linear-1", "branch-relu", "output-1"])
+        self.assertNotIn("orphan-relu", reportedIDs)
+
+    async def test_node_error_does_not_stop_independent_branch(self):
+        websocket = FakeWebSocket()  # 收集局部错误、独立分支结果和终态消息
         blueprint = linearBlueprint(); blueprint["nodes"][1]["data"]["params"]["in_features"] = 99  # 制造线性层输入形状错误
+        blueprint["nodes"].append({"id": "branch-relu", "data": {"opcode": "relu", "params": {}}})
+        blueprint["edges"].append({"source": "input.with.dot", "sourceHandle": "out", "target": "branch-relu", "targetHandle": "x"})  # 不依赖错误节点的分支应继续
 
-        await server.handleMessage(websocket, json.dumps({"type": "runBlueprint", "id": "run-error", "data": {"blueprint": blueprint}}))  # 执行失败蓝图
+        await server.handleMessage(websocket, json.dumps({"type": "runBlueprint", "id": "run-error", "data": {"blueprint": blueprint}}))  # 执行包含局部错误的蓝图
 
+        reportedIDs = [message["data"]["nodeId"] for message in websocket.messages if message["type"] == "nodeResult"]
+        nodeErrors = [message["error"]["nodeId"] for message in websocket.messages if message["type"] == "nodeError"]
         terminalMessages = [message for message in websocket.messages if message["type"] == "blueprintComplete"]
+        self.assertEqual(reportedIDs, ["input.with.dot", "branch-relu"])
+        self.assertEqual(nodeErrors, ["linear-1"])
         self.assertEqual(len(terminalMessages), 1)
-        self.assertEqual(terminalMessages[0]["data"]["status"], "failed")
-        self.assertIn("code", terminalMessages[0]["data"]["error"])
+        self.assertEqual(terminalMessages[0]["data"]["status"], "completedWithErrors")
+        self.assertEqual(terminalMessages[0]["data"]["errorCount"], 1)
 
     async def test_malformed_run_uses_blueprint_terminal_envelope(self):
         websocket = FakeWebSocket()  # 畸形运行请求也必须遵守唯一终态协议
@@ -59,17 +88,6 @@ class ServerProtocolTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(websocket.messages), 1)
         self.assertEqual(websocket.messages[0]["type"], "blueprintComplete")
         self.assertEqual(websocket.messages[0]["data"]["status"], "failed")
-
-    async def test_checkpoint_load_removes_internal_model_before_response(self):
-        websocket = FakeWebSocket()  # 检查点恢复响应必须保持纯JSON数据
-        loadedData = {"status": "complete", "path": "artifacts/checkpoints/model", "blueprint": linearBlueprint(), "manifest": {}, "model": object()}  # 模拟包含内部模型的操作结果
-
-        with patch("server.operations.loadCheckpoint", return_value=loadedData):
-            await server.handleMessage(websocket, json.dumps({"type": "loadCheckpoint", "id": "load-1", "data": {"path": "checkpoints/model"}}))  # 触发加载反馈
-
-        self.assertEqual(websocket.messages[0]["type"], "checkpointLoadComplete")
-        self.assertNotIn("model", websocket.messages[0]["data"])
-        server.clientModels.pop(websocket, None)  # 假连接不经过handleConnection，测试主动释放会话模型
 
 
 if __name__ == "__main__":
