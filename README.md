@@ -70,6 +70,32 @@
    WebSocket服务已启动: ws://0.0.0.0:8765
    ```
 
+## WebSocket 协议
+
+所有请求使用 `{"type": "...", "id": "request-id", "data": {...}}`。响应保留相同 `id`，错误统一为 `{"code", "message", "details"}`。
+
+| 请求 | `data` 关键字段 | 成功反馈 |
+|---|---|---|
+| `runBlueprint` | `blueprint`, `inputs?`, `maxValues?` | 多条 `nodeResult`，恰好一条 `blueprintComplete` |
+| `scoreBlueprint` | `blueprint`, `score?: {inputs, warmupRuns, runs}` | `scoreComplete`，包含延迟和参数量 |
+| `trainBlueprint` | `blueprint`, `training?`, `checkpointPath?` | 多条 `trainProgress`，一条 `trainComplete` 或 `trainError` |
+| `cancelTraining` | `trainingId` | `cancelComplete` |
+| `saveCheckpoint` / `loadCheckpoint` | `blueprint + path` / `path` | `checkpointSaveComplete` / `checkpointLoadComplete` |
+| `exportPython` / `exportONNX` | `blueprint`, `path`, `export?` | `exportComplete` |
+| `listPlugins` / `pluginStatus` / `reloadPlugins` | 空对象 | `pluginList` / `pluginStatus` / `pluginReloadComplete` |
+
+输入张量可写为数组，或 `{"shape": [2, 3], "dtype": "float32", "values": [...]}`。节点结果的每个端口都使用 `kind`、`shape`、`dtype`、`device`、扁平 `values`、`totalElements` 和 `truncated` 描述，并附带 `opcode` 与 `durationMs`。
+
+训练默认生成安全的随机输入和零目标，可配置 `epochs`、`stepsPerEpoch`、`batchSize`、`sampleCount`、`optimizer`（`adam`/`adamw`/`sgd`）、`learningRate`、`inputShapes`、`outputId` 或 `lossOutput: {nodeId, port}`。耗时训练在线程中运行，每个连接同时只允许一个训练任务，断开连接会触发取消。
+
+检查点和导出文件只允许写入 `backend/artifacts`。检查点目录包含 `manifest.json`、`blueprint.json` 和 `state_dict.pt`。训练或加载后的模型会在当前连接中继续用于运行、跑分、保存和导出；Python 导出同时生成 `.py` 入口和 `.pt` 权重。ONNX 导出需先运行：
+
+```bash
+uv sync --extra onnx
+```
+
+本地插件只从 `backend/plugins/<plugin-id>/` 加载。每个插件需提供 `manifest.json`，至少包含与目录同名的 `id` 和指向目录内 Python 文件的 `entry`；节点或分类碰撞会使重载回滚。
+
 ---
 
 ## 📜 许可证

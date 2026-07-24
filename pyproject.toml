@@ -11,6 +11,12 @@ dependencies = [
     "websockets>=16.0",
     "watchfiles>=1.0",
 ]
+
+[project.optional-dependencies]
+onnx = [
+    "onnx>=1.17",
+]
+
 [tool.uv]
 index-url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 

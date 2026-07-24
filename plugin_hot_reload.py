@@ -4,6 +4,7 @@ import os  # 操作系统库，用于拼接目录路径
 
 import loader  # 复用已有节点重载能力
 import registry  # 复用已有注册表能力
+import plugins  # 插件重载能力，保证核心节点热重载后恢复插件注册
 
 
 async def runHotReload(broadcast, folder="nodes"):
@@ -19,13 +20,16 @@ async def runHotReload(broadcast, folder="nodes"):
 
         print(f"检测到节点文件变化: {pyChanges}")  # 输出变化详情
         await asyncio.sleep(0.1)  # 简单防抖，合并极短时间内的多次保存
-        nodesSnapshot, categoriesSnapshot = (
+        nodesSnapshot, categoriesSnapshot, nodeOwnersSnapshot, categoryOwnersSnapshot = (
             copy.deepcopy(registry.nodes),
             copy.deepcopy(registry.categories),
+            copy.deepcopy(registry.nodeOwners),
+            copy.deepcopy(registry.categoryOwners),
         )  # 先做深拷贝快照，保证重载失败可以回滚
 
         try:
             loader.reloadAll(folder)  # 全量重建注册表，复用已有重载逻辑
+            plugins.reloadPlugins()  # 核心注册表清空后重新挂载全部启用插件
             print("热重载完成，广播新registry")  # 输出成功日志
             await broadcast("registryUpdated", registry.getAllForFrontend())  # 广播更新后的注册表给前端
         except Exception as error:
@@ -34,6 +38,10 @@ async def runHotReload(broadcast, folder="nodes"):
             registry.nodes.update(nodesSnapshot)  # 回滚节点快照
             registry.categories.clear()  # 清空当前分类注册表
             registry.categories.update(categoriesSnapshot)  # 回滚分类快照
+            registry.nodeOwners.clear()  # 清空失败重载产生的节点归属
+            registry.nodeOwners.update(nodeOwnersSnapshot)  # 回滚节点所有权快照
+            registry.categoryOwners.clear()  # 清空失败重载产生的分类归属
+            registry.categoryOwners.update(categoryOwnersSnapshot)  # 回滚分类所有权快照
             await broadcast("reloadError", {"error": str(error)})  # 广播热重载失败信息
 
 

@@ -104,13 +104,14 @@ class MultiheadAttentionNode(BaseNode):  # 继承BaseNode
             add_zero_attn=self.params.get("add_zero_attn", False),  # 添加零注意力
             kdim=self.params.get("kdim", 512),  # 键维度
             vdim=self.params.get("vdim", 512),  # 值维度
+            batch_first=True,  # 节点文档约定输入顺序为[batch, seq, feature]
         )
 
     def compute(self, input):  # 计算方法
         q = input.get("q")  # 获取查询张量
         k = input.get("k")  # 获取键张量
         v = input.get("v")  # 获取值张量
-        out, attn_weights = self.multihead_attention(q, k, v)  # 多头注意力计算
+        out, attn_weights = self.multihead_attention(q, k, v, average_attn_weights=False)  # 返回每个头的独立权重
         return {"out": out, "attn_weights": attn_weights}  # 返回两个输出
 
 
@@ -165,16 +166,16 @@ class ScaledDotProductAttentionNode(BaseNode):  # 继承BaseNode
         is_causal = self.params.get("is_causal", False)  # 获取因果注意力标志
         scale = self.params.get("scale", 0.0)  # 获取缩放因子
 
-        # 使用PyTorch原生缩放点积注意力
-        out, attn_weights = F.scaled_dot_product_attention(
-            q,
-            k,
-            v,
-            dropout_p=dropout,
-            is_causal=is_causal,
-            scale=None if scale == 0 else scale,  # scale=None表示自动计算
-            return_attn_weights=True,
-        )
+        scaleValue = scale if scale else q.size(-1) ** -0.5  # 与PyTorch默认缩放规则保持一致
+        scores = torch.matmul(q, k.transpose(-2, -1)) * scaleValue  # 显式计算分数以同时返回权重
+        if is_causal:
+            queryLength, keyLength = q.size(-2), k.size(-2)  # 读取查询和键的序列长度
+            causalMask = torch.ones(queryLength, keyLength, device=q.device, dtype=torch.bool).tril()  # 构造下三角可见区域
+            scores = scores.masked_fill(~causalMask, float("-inf"))  # 屏蔽尚未出现的键位置
+        attn_weights = torch.softmax(scores, dim=-1)  # 将分数转换为可解释的注意力权重
+        usedDropout = dropout if self.training else 0.0  # 推理模式必须关闭随机失活
+        droppedWeights = F.dropout(attn_weights, p=usedDropout, training=self.training)  # 训练时仅对参与加权的副本失活
+        out = torch.matmul(droppedWeights, v)  # 使用注意力权重聚合值张量
         return {"out": out, "attn_weights": attn_weights}  # 返回两个输出
 
 

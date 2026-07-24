@@ -1,7 +1,12 @@
+import threading  # 注册表同步能力，用于插件重载和蓝图编译互斥
 import torch.nn as nn
 
 nodes = {}
 categories = {}
+registryLock = threading.RLock()  # 编译和插件重载不能观察半成品注册表
+nodeOwners = {}  # 记录每个操作码的归属，插件不能静默覆盖内置节点
+categoryOwners = {}  # 记录每个分类的归属，重载结果可明确追踪
+registrationOwner = "core"  # 动态导入期间由插件加载器临时切换所有者
 
 categoriesOrder = ["base", "transform", "activation", "math"]
 
@@ -9,15 +14,32 @@ categoriesOrder = ["base", "transform", "activation", "math"]
 def clearAll():  # 清空注册表，热重载时调用
     nodes.clear()  # 清空节点字典
     categories.clear()  # 清空分类字典
+    nodeOwners.clear()  # 清空节点归属，等待重新加载建立真实所有权
+    categoryOwners.clear()  # 清空分类归属，避免保留失效插件记录
+
+
+def setRegistrationOwner(owner):
+    global registrationOwner
+    registrationOwner = owner or "core"  # 空所有者统一回退到内置节点身份
 
 
 def registerCategory(id, label, color, icon):
+    existingOwner = categoryOwners.get(id)  # 读取已注册分类的归属
+    if existingOwner and existingOwner != registrationOwner:
+        raise ValueError(f"分类冲突: {id} 已由 {existingOwner} 注册")  # 不允许插件覆盖其他所有者分类
     categories[id] = {"label": label, "color": color, "icon": icon, "nodes": []}
+    categoryOwners[id] = registrationOwner  # 分类创建成功后记录当前导入所有者
 
 
 def registerNode(opcode, label, ports, params, description, cls):
+    existingOwner = nodeOwners.get(opcode)  # 读取已注册操作码的归属
+    if existingOwner and existingOwner != registrationOwner:
+        raise ValueError(f"节点冲突: {opcode} 已由 {existingOwner} 注册")  # 冲突必须显式失败而不是替换实现
+    if not categories:
+        raise ValueError(f"节点 {opcode} 注册前必须先声明分类")  # 隐式使用最后分类需要先有明确分类
     nodes[opcode] = {"opcode": opcode, "label": label, "ports": ports, "params": params, "description": description, "cls": cls}
     categories[list(categories.keys())[-1]]["nodes"].append(opcode)
+    nodeOwners[opcode] = registrationOwner  # 节点创建成功后记录当前导入所有者
 
 
 def getAllForFrontend():

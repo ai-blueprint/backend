@@ -32,6 +32,8 @@ category(  # 注册基础分类
 )
 class InputNode(BaseNode):  # 继承BaseNode
     def compute(self, input):  # 计算方法
+        if "value" in input:
+            return {"out": input["value"]}  # 显式模型输入优先，训练和导出不会被随机值覆盖
         shape = self.params.get("out_shape", [2, 4, 10])  # 读取扁平参数里的输出形状
         return {"out": torch.rand(shape)}  # 返回随机张量
 
@@ -40,13 +42,12 @@ class InputNode(BaseNode):  # 继承BaseNode
     opcode="output",  # 节点操作码
     label="输出",  # 节点显示名称
     ports={"input": {"in": ""}, "output": {}},  # 端口定义，输出节点没有输出端口
-    description="接收并打印最终结果",  # 节点描述
+    description="接收并输出最终结果",  # 节点描述
 )
 class OutputNode(BaseNode):  # 继承BaseNode
     def compute(self, input):  # 计算方法
         value = input.get("in", None)  # 获取输入值
-        print(f"[Output] 最终输出: {value}")  # 打印最终结果
-        return {}  # 返回空字典，没有输出端口
+        return {"out": value}  # 保留终点值，供显式模型输出、训练和导出统一读取
 
 
 @node(  # 注册调试节点
