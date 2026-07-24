@@ -106,13 +106,16 @@ class MulNode(BaseNode):  # 继承BaseNode
         "input": {"x": "被除数", "y": "除数"},  # 两个输入端口
         "output": {"out": ""},  # 一个输出端口
     },
-    params={},  # 无参数
-    description="两个张量逐元素相除",  # 节点描述
+    params={  # 参数定义
+        "safe": {"label": "安全除法", "type": "bool", "value": True},  # 是否替换近零分母
+        "eps": {"label": "最小分母", "type": "float", "value": 1e-8, "range": [1e-12, 1.0]},  # 安全分母绝对值
+    },
+    description="两个张量逐元素相除，默认安全处理近零分母",  # 节点描述
 )
 class DivNode(BaseNode):  # 继承BaseNode
     """
     逐元素除法节点
-    用法：out = x / y，支持广播
+    用法：out = x / y，支持广播；safe=True时以eps替换近零分母
     调用示例：
         输入 x: shape=[batch, features], y: shape=[batch, features]
         输出 out: shape=[batch, features]
@@ -121,7 +124,12 @@ class DivNode(BaseNode):  # 继承BaseNode
     def compute(self, input):  # 计算方法
         x = input.get("x")  # 获取被除数
         y = input.get("y")  # 获取除数
-        out = torch.div(x, y)  # 逐元素除法
+        safe = self.params.get("safe", True)  # 读取是否启用安全除法
+        eps = self.params.get("eps", 1e-8)  # 读取近零判断阈值
+        if safe:  # 默认避免随机输入或计算结果中的零分母产生无穷值
+            signs = torch.where(y < 0, -torch.ones_like(y), torch.ones_like(y))  # 零值按正数方向替换
+            y = torch.where(y.abs() < eps, signs * eps, y)  # 保留非零分母的符号和原值
+        out = torch.div(x, y)  # 使用安全分母执行逐元素除法
         return {"out": out}  # 返回输出
 
 
@@ -132,22 +140,26 @@ class DivNode(BaseNode):  # 继承BaseNode
         "input": {"x": "", "y": ""},  # 两个输入端口
         "output": {"out": ""},  # 一个输出端口
     },
-    params={},  # 无参数
-    description="矩阵相乘，支持批量",  # 节点描述
+    params={
+        "transpose_y": {"label": "转置第二个输入", "type": "bool", "value": True},  # 默认允许两个同形输入相乘
+    },  # 参数定义
+    description="矩阵相乘，默认转置第二个输入的最后两维",  # 节点描述
 )
 class MatmulNode(BaseNode):  # 继承BaseNode
     """
     矩阵乘法节点
-    用法：out = x @ y，支持批量矩阵乘法
+    用法：默认 out = x @ y.transpose(-1, -2)，transpose_y=False时执行标准x @ y
     调用示例：
-        输入 x: shape=[batch, m, k], y: shape=[batch, k, n]
-        输出 out: shape=[batch, m, n]
+        默认输入 x, y: shape=[batch, m, k]
+        默认输出 out: shape=[batch, m, m]
     """
 
     def compute(self, input):  # 计算方法
         x = input.get("x")  # 获取输入1
         y = input.get("y")  # 获取输入2
-        out = torch.matmul(x, y)  # 矩阵乘法
+        transpose_y = self.params.get("transpose_y", True)  # 读取第二个输入是否转置
+        right = y.transpose(-1, -2) if transpose_y else y  # false时严格保留标准x@y语义
+        out = torch.matmul(x, right)  # 沿最后两维执行矩阵乘法
         return {"out": out}  # 返回输出
 
 
@@ -158,22 +170,26 @@ class MatmulNode(BaseNode):  # 继承BaseNode
         "input": {"x": "", "y": ""},  # 两个输入端口
         "output": {"out": ""},  # 一个输出端口
     },
-    params={},  # 无参数
-    description="多组矩阵同时相乘",  # 节点描述
+    params={
+        "transpose_y": {"label": "转置第二个输入", "type": "bool", "value": True},  # 默认允许两个同形三维输入相乘
+    },  # 参数定义
+    description="批量矩阵相乘，默认转置第二个输入的最后两维",  # 节点描述
 )
 class BmmNode(BaseNode):  # 继承BaseNode
     """
     批量矩阵乘法节点
-    用法：out = batch_matmul(x, y)，要求x和y都是3D张量
+    用法：默认转置y后批量相乘，transpose_y=False时执行标准batch_matmul(x, y)
     调用示例：
-        输入 x: shape=[batch, m, k], y: shape=[batch, k, n]
-        输出 out: shape=[batch, m, n]
+        默认输入 x, y: shape=[batch, m, k]
+        默认输出 out: shape=[batch, m, m]
     """
 
     def compute(self, input):  # 计算方法
         x = input.get("x")  # 获取输入1
         y = input.get("y")  # 获取输入2
-        out = torch.bmm(x, y)  # 批量矩阵乘法
+        transpose_y = self.params.get("transpose_y", True)  # 读取第二个输入是否转置
+        right = y.transpose(-1, -2) if transpose_y else y  # false时严格保留标准批量矩阵乘法
+        out = torch.bmm(x, right)  # 对三维输入执行批量矩阵乘法
         return {"out": out}  # 返回输出
 
 
@@ -188,7 +204,7 @@ class BmmNode(BaseNode):  # 继承BaseNode
         "equation": {
             "label": "公式",
             "type": "str",
-            "value": "ij,jk->ik",
+            "value": "bik,bjk->bij",
         },  # 爱因斯坦求和公式
     },
     description="用公式描述任意张量运算",  # 节点描述
@@ -198,7 +214,7 @@ class EinsumNode(BaseNode):  # 继承BaseNode
     爱因斯坦求和节点
     用法：用字符串公式描述张量运算 out = einsum(equation, x, y)
     调用示例：
-        参数 equation="ij,jk->ik" 表示矩阵乘法
+        默认 equation="bik,bjk->bij" 兼容两个同形三维输入
         参数 equation="bhid,bhjd->bhij" 表示注意力分数计算
         输入 x, y: 形状由公式决定
         输出 out: 形状由公式决定
@@ -207,7 +223,7 @@ class EinsumNode(BaseNode):  # 继承BaseNode
     def compute(self, input):  # 计算方法
         x = input.get("x")  # 获取输入1
         y = input.get("y")  # 获取输入2
-        equation = self.params.get("equation", "ij,jk->ik")  # 获取公式字符串
+        equation = self.params.get("equation", "bik,bjk->bij")  # 默认计算同形三维输入的批量相似度
         out = torch.einsum(equation, x, y)  # 爱因斯坦求和
         return {"out": out}  # 返回输出
 
@@ -219,8 +235,10 @@ class EinsumNode(BaseNode):  # 继承BaseNode
         "input": {"x": "起点", "y": "终点", "w": "权重"},  # 三个输入端口
         "output": {"out": ""},  # 一个输出端口
     },
-    params={},  # 无参数
-    description="在两个值之间按权重过渡",  # 节点描述
+    params={
+        "clamp_weight": {"label": "限制权重", "type": "bool", "value": True},  # 默认将权重限制在插值区间
+    },  # 参数定义
+    description="在两个值之间按权重过渡，默认把权重限制到0至1",  # 节点描述
 )
 class LerpNode(BaseNode):  # 继承BaseNode
     """
@@ -235,6 +253,9 @@ class LerpNode(BaseNode):  # 继承BaseNode
         x = input.get("x")  # 获取起点
         y = input.get("y")  # 获取终点
         w = input.get("w")  # 获取权重
+        clamp_weight = self.params.get("clamp_weight", True)  # 读取是否限制权重范围
+        if clamp_weight:  # 默认执行区间内插值而不是向区间外推
+            w = torch.clamp(w, 0.0, 1.0)  # 将随机权重映射到合法插值范围
         out = torch.lerp(x, y, w)  # 线性插值
         return {"out": out}  # 返回输出
 
@@ -247,21 +268,21 @@ class LerpNode(BaseNode):  # 继承BaseNode
         "output": {"out": ""},  # 一个输出端口
     },
     params={},  # 无参数
-    description="两个向量逐元素乘再求和",  # 节点描述
+    description="两个张量沿最后一维做批量点积",  # 节点描述
 )
 class DotNode(BaseNode):  # 继承BaseNode
     """
     向量点积节点
-    用法：out = sum(x * y)，要求x和y都是1D张量
+    用法：out = sum(x * y, dim=-1)，批量维度保持不变
     调用示例：
-        输入 x: shape=[n], y: shape=[n]
-        输出 out: shape=[] 标量
+        输入 x, y: shape=[..., n]
+        输出 out: shape=[...]
     """
 
     def compute(self, input):  # 计算方法
         x = input.get("x")  # 获取输入1
         y = input.get("y")  # 获取输入2
-        out = torch.dot(x, y)  # 向量点积
+        out = torch.sum(x * y, dim=-1)  # 保留批量维并沿最后一维计算点积
         return {"out": out}  # 返回输出
 
 
@@ -378,20 +399,25 @@ class ExpNode(BaseNode):  # 继承BaseNode
         "input": {"x": ""},  # 一个输入端口
         "output": {"out": ""},  # 一个输出端口
     },
-    params={},  # 无参数
-    description="对每个元素开平方根",  # 节点描述
+    params={
+        "safe": {"label": "安全模式", "type": "bool", "value": True},  # 默认把负值归零后开方
+    },  # 参数定义
+    description="对每个元素开平方根，安全模式下先把负值归零",  # 节点描述
 )
 class SqrtNode(BaseNode):  # 继承BaseNode
     """
     开平方节点
     用法：out = sqrt(x)
     调用示例：
-        输入 x: shape=[任意形状]，值需非负
+        输入 x: shape=[任意形状]，safe=True时负值先归零
         输出 out: shape=[与输入形状相同]
     """
 
     def compute(self, input):  # 计算方法
         x = input.get("x")  # 获取输入张量
+        safe = self.params.get("safe", True)  # 读取是否启用安全模式
+        if safe:  # 默认保证包含负数的随机输入不会产生NaN
+            x = torch.clamp_min(x, 0.0)  # 负值归零，关闭后恢复严格sqrt语义
         out = torch.sqrt(x)  # 开平方
         return {"out": out}  # 返回输出
 

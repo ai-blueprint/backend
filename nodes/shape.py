@@ -49,10 +49,10 @@ class ReshapeNode(BaseNode):  # 继承BaseNode
     reshape/view形状变换节点
     用法：改变张量形状，元素总数不变
     调用示例：
-        输入 x: shape=[batch, seq_len*heads]
-        参数 shape=[0, 8, -1] 其中-1自动推断
+        输入 x: shape=[2, 4, 8]
+        默认 shape=[-1] 展开为长度64的一维张量
         mode=reshape 允许非连续内存，mode=view 要求连续内存
-        输出 out: shape=[batch, 8, seq_len*heads/8]
+        输出 out: shape=[64]
     """
 
     def compute(self, input):  # 计算方法
@@ -77,15 +77,15 @@ class ReshapeNode(BaseNode):  # 继承BaseNode
         "dim0": {
             "label": "维度1",
             "type": "int",
-            "value": 0,
+            "value": -2,
             "range": [-10, 10],
-        },  # 要交换的第一个维度
+        },  # 默认选择倒数第二维
         "dim1": {
             "label": "维度2",
             "type": "int",
-            "value": 1,
+            "value": -1,
             "range": [-10, 10],
-        },  # 要交换的第二个维度
+        },  # 默认选择最后一维
     },
     description="交换指定的两个维度",  # 节点描述
 )
@@ -101,8 +101,8 @@ class TransposeNode(BaseNode):  # 继承BaseNode
 
     def compute(self, input):  # 计算方法
         x = input.get("x")  # 获取输入张量
-        dim0 = self.params.get("dim0", 0)  # 获取维度1
-        dim1 = self.params.get("dim1", 1)  # 获取维度2
+        dim0 = self.params.get("dim0", -2)  # 获取维度1，缺省时选择倒数第二维
+        dim1 = self.params.get("dim1", -1)  # 获取维度2，缺省时选择最后一维
         out = x.transpose(dim0, dim1)  # 交换两个维度
         return {"out": out}  # 返回输出
 
@@ -185,7 +185,7 @@ class SqueezeNode(BaseNode):  # 继承BaseNode
         "dim": {
             "label": "维度",
             "type": "int",
-            "value": 0,
+            "value": 1,
             "range": [-10, 10],
         },  # 要插入的维度位置
     },
@@ -203,7 +203,7 @@ class UnsqueezeNode(BaseNode):  # 继承BaseNode
 
     def compute(self, input):  # 计算方法
         x = input.get("x")  # 获取输入张量
-        dim = self.params.get("dim", 0)  # 获取维度
+        dim = self.params.get("dim", 1)  # 获取维度，缺省时插入到维度1
         out = x.unsqueeze(dim)  # 插入大小为1的维度
         return {"out": out}  # 返回输出
 
@@ -260,13 +260,13 @@ class FlattenNode(BaseNode):  # 继承BaseNode
         "dim": {
             "label": "维度",
             "type": "int",
-            "value": 1,
+            "value": -1,
             "range": [-10, 10],
-        },  # 要展开的维度
+        },  # 默认展开最后一维
         "sizes": {
             "label": "展开形状",
             "type": "list",
-            "value": [8, 64],
+            "value": [2, 4],
         },  # 展开后的形状
     },
     description="一个维度拆成多个",  # 节点描述
@@ -276,15 +276,15 @@ class UnflattenNode(BaseNode):  # 继承BaseNode
     unflatten展开节点
     用法：将一个维度展开成多个 out = x.unflatten(dim, sizes)
     调用示例：
-        输入 x: shape=[batch, 512]
-        参数 dim=1, sizes=[8, 64]
-        输出 out: shape=[batch, 8, 64]
+        输入 x: shape=[2, 4, 8]
+        参数 dim=-1, sizes=[2, 4]
+        输出 out: shape=[2, 4, 2, 4]
     """
 
     def compute(self, input):  # 计算方法
         x = input.get("x")  # 获取输入张量
-        dim = self.params.get("dim", 1)  # 获取维度
-        sizes = self.params.get("sizes", [8, 64])  # 获取展开形状
+        dim = self.params.get("dim", -1)  # 获取维度，缺省时展开最后一维
+        sizes = self.params.get("sizes", [2, 4])  # 获取展开形状，默认匹配长度8
         out = x.unflatten(dim, sizes)  # 展开维度
         return {"out": out}  # 返回输出
 
@@ -325,10 +325,10 @@ class UnflattenNode(BaseNode):  # 继承BaseNode
 class PadNode(BaseNode):  # 继承BaseNode
     """
     pad填充节点
-    用法：在张量边缘填充值 out = F.pad(x, padding, mode, value)
+    用法：常数模式传入填充值，其他模式只按输入边缘生成填充
     调用示例：
         输入 x: shape=[batch, seq_len, features]
-        参数 padding=[0, 0, 1, 1] 表示最后两个维度各填充1
+        参数 padding=[0, 0, 1, 1] 表示仅在倒数第二维两侧各填充1
         输出 out: shape=[batch, seq_len+2, features]
     """
 
@@ -336,8 +336,11 @@ class PadNode(BaseNode):  # 继承BaseNode
         x = input.get("x")  # 获取输入张量
         padding = self.params.get("padding", [0, 0, 0, 0])  # 获取填充量
         mode = self.params.get("mode", "constant")  # 获取填充模式
-        value = self.params.get("value", 0.0)  # 获取填充值
-        out = F.pad(x, padding, mode=mode, value=value)  # 边缘填充
+        if mode == "constant":  # 常数模式才接受value参数
+            value = self.params.get("value", 0.0)  # 获取常数填充值
+            out = F.pad(x, padding, mode=mode, value=value)  # 使用指定常数填充边缘
+        else:  # 反射、复制和循环模式由输入边缘决定填充值
+            out = F.pad(x, padding, mode=mode)  # 非常数模式不能传入value参数
         return {"out": out}  # 返回输出
 
 

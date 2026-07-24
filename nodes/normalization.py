@@ -33,7 +33,7 @@ category(  # 注册归一化分类
         "normalized_shape": {
             "label": "归一化形状",
             "type": "list",
-            "value": [64],
+            "value": [8],
         },  # 归一化的维度形状
         "eps": {
             "label": "防零极小值",
@@ -61,7 +61,7 @@ class LayerNormNode(BaseNode):  # 继承BaseNode
 
     def build(self):  # 构建层
         self.layer_norm = nn.LayerNorm(  # 创建LayerNorm层
-            self.params.get("normalized_shape", [64]),  # 归一化的维度形状
+            self.params.get("normalized_shape", [8]),  # 归一化形状，默认匹配最后一维8
             eps=self.params.get("eps", 1e-5),  # 防零极小值
             elementwise_affine=self.params.get(
                 "elementwise_affine", True
@@ -85,13 +85,13 @@ class LayerNormNode(BaseNode):  # 继承BaseNode
         "num_groups": {
             "label": "分组数",
             "type": "int",
-            "value": 8,
+            "value": 2,
             "range": [1, 1024],
         },  # 分组数量
         "num_channels": {
             "label": "通道数",
             "type": "int",
-            "value": 64,
+            "value": 4,
             "range": [1, 65536],
         },  # 通道数量
         "eps": {
@@ -114,14 +114,19 @@ class GroupNormNode(BaseNode):  # 继承BaseNode
     用法：将通道分成若干组，组内做归一化
     调用示例：
         输入 x: shape=[batch, num_channels, *]
-        参数 num_groups=8, num_channels=64 表示64个通道分成8组
+        默认 num_groups=2, num_channels=4 表示4个通道分成2组
         输出 out: shape=[与输入相同]
     """
 
     def build(self):  # 构建层
+        num_groups = self.params.get("num_groups", 2)  # 读取分组数
+        num_channels = self.params.get("num_channels", 4)  # 读取通道数
+        if num_channels % num_groups != 0:  # 每组必须获得相同数量的通道
+            raise ValueError("GroupNorm分组数必须整除通道数")  # 提前反馈明确的参数关系错误
+
         self.group_norm = nn.GroupNorm(  # 创建GroupNorm层
-            self.params.get("num_groups", 8),  # 分组数
-            self.params.get("num_channels", 64),  # 通道数
+            num_groups,  # 使用已经过整除校验的分组数
+            num_channels,  # 使用已经过整除校验的通道数
             eps=self.params.get("eps", 1e-5),  # 防零极小值
             affine=self.params.get("affine", True),  # 可学习缩放偏移
         )
@@ -143,10 +148,10 @@ class GroupNormNode(BaseNode):  # 继承BaseNode
         "dim": {
             "label": "维度",
             "type": "enum",
-            "value": "2d",
+            "value": "1d",
             "options": {"1d": "1D", "2d": "2D", "3d": "3D"},
         },  # 维度选择
-        "num_features": {"label": "特征数", "type": "int", "value": 64},  # 特征/通道数
+        "num_features": {"label": "特征数", "type": "int", "value": 4},  # 默认匹配输入通道数4
         "eps": {
             "label": "防零极小值",
             "type": "float",
@@ -182,13 +187,13 @@ class BatchNormNode(BaseNode):  # 继承BaseNode
     """
 
     def build(self):  # 构建层
-        dim = self.params.get("dim", "2d")  # 获取维度选择
+        dim = self.params.get("dim", "1d")  # 获取维度选择，默认匹配三维输入
         bnCls = {"1d": nn.BatchNorm1d, "2d": nn.BatchNorm2d, "3d": nn.BatchNorm3d}[
             dim
         ]  # 根据维度选择对应的BatchNorm类
 
         self.batch_norm = bnCls(  # 创建BatchNorm层
-            num_features=self.params.get("num_features", 64),  # 特征数
+            num_features=self.params.get("num_features", 4),  # 特征数，默认匹配通道数4
             eps=self.params.get("eps", 1e-5),  # 防零极小值
             momentum=self.params.get("momentum", 0.1),  # 动量
             affine=self.params.get("affine", True),  # 可学习缩放偏移
@@ -214,10 +219,10 @@ class BatchNormNode(BaseNode):  # 继承BaseNode
         "dim": {
             "label": "维度",
             "type": "enum",
-            "value": "2d",
+            "value": "1d",
             "options": {"1d": "1D", "2d": "2D", "3d": "3D"},
         },  # 维度选择
-        "num_features": {"label": "特征数", "type": "int", "value": 64},  # 特征/通道数
+        "num_features": {"label": "特征数", "type": "int", "value": 4},  # 默认匹配输入通道数4
         "eps": {
             "label": "防零极小值",
             "type": "float",
@@ -253,7 +258,7 @@ class InstanceNormNode(BaseNode):  # 继承BaseNode
     """
 
     def build(self):  # 构建层
-        dim = self.params.get("dim", "2d")  # 获取维度选择
+        dim = self.params.get("dim", "1d")  # 获取维度选择，默认匹配三维输入
         inCls = {
             "1d": nn.InstanceNorm1d,
             "2d": nn.InstanceNorm2d,
@@ -263,7 +268,7 @@ class InstanceNormNode(BaseNode):  # 继承BaseNode
         ]  # 根据维度选择对应的InstanceNorm类
 
         self.instance_norm = inCls(  # 创建InstanceNorm层
-            num_features=self.params.get("num_features", 64),  # 特征数
+            num_features=self.params.get("num_features", 4),  # 特征数，默认匹配通道数4
             eps=self.params.get("eps", 1e-5),  # 防零极小值
             momentum=self.params.get("momentum", 0.1),  # 动量
             affine=self.params.get("affine", False),  # 可学习缩放偏移
@@ -289,7 +294,7 @@ class InstanceNormNode(BaseNode):  # 继承BaseNode
         "normalized_shape": {
             "label": "归一化形状",
             "type": "list",
-            "value": [64],
+            "value": [8],
         },  # 归一化的维度形状
         "eps": {
             "label": "防零极小值",
@@ -316,7 +321,7 @@ class RMSNormNode(BaseNode):  # 继承BaseNode
 
     def build(self):  # 构建层
         self.rms_norm = nn.RMSNorm(  # 创建RMSNorm层
-            self.params.get("normalized_shape", [64]),  # 归一化的维度形状
+            self.params.get("normalized_shape", [8]),  # 归一化形状，默认匹配最后一维8
             eps=self.params.get("eps", 1e-5),  # 防零极小值
             elementwise_affine=self.params.get(
                 "elementwise_affine", True

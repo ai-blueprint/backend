@@ -37,13 +37,13 @@ category(  # 注册注意力分类
         "embed_dim": {
             "label": "嵌入维度",
             "type": "int",
-            "value": 512,
+            "value": 8,
             "range": [1, 65536],
         },  # 输入特征维度
         "num_heads": {
             "label": "头数",
             "type": "int",
-            "value": 8,
+            "value": 2,
             "range": [1, 256],
         },  # 注意力头数量
         "dropout": {
@@ -70,13 +70,13 @@ category(  # 注册注意力分类
         "kdim": {
             "label": "键维度",
             "type": "int",
-            "value": 512,
+            "value": 8,
             "range": [1, 65536],
         },  # 键特征维度（可选）
         "vdim": {
             "label": "值维度",
             "type": "int",
-            "value": 512,
+            "value": 8,
             "range": [1, 65536],
         },  # 值特征维度（可选）
     },
@@ -95,15 +95,19 @@ class MultiheadAttentionNode(BaseNode):  # 继承BaseNode
     """
 
     def build(self):  # 构建层
+        embedDim = self.params.get("embed_dim", 8)  # 查询特征需要平均分配到每个注意力头
+        numHeads = self.params.get("num_heads", 2)  # 默认契约将8维特征拆成两个4维头
+        if numHeads <= 0 or embedDim % numHeads != 0:
+            raise ValueError("embed_dim必须能被num_heads整除")  # 提前返回清晰的节点参数错误
         self.multihead_attention = nn.MultiheadAttention(  # 创建多头注意力层
-            embed_dim=self.params.get("embed_dim", 512),  # 嵌入维度
-            num_heads=self.params.get("num_heads", 8),  # 头数
+            embed_dim=embedDim,  # 嵌入维度
+            num_heads=numHeads,  # 头数
             dropout=self.params.get("dropout", 0.1),  # Dropout率
             bias=self.params.get("bias", True),  # 偏置
             add_bias_kv=self.params.get("add_bias_kv", False),  # 添加K/V偏置
             add_zero_attn=self.params.get("add_zero_attn", False),  # 添加零注意力
-            kdim=self.params.get("kdim", 512),  # 键维度
-            vdim=self.params.get("vdim", 512),  # 值维度
+            kdim=self.params.get("kdim", 8),  # 键维度
+            vdim=self.params.get("vdim", 8),  # 值维度
             batch_first=True,  # 节点文档约定输入顺序为[batch, seq, feature]
         )
 
@@ -144,12 +148,12 @@ class MultiheadAttentionNode(BaseNode):  # 继承BaseNode
             "range": [0, 100],
         },  # 缩放因子，0表示自动计算
     },
-    description="PyTorch 2.0+原生高效的缩放点积注意力",  # 节点描述
+    description="显式计算并返回权重的缩放点积注意力",  # 节点描述
 )
 class ScaledDotProductAttentionNode(BaseNode):  # 继承BaseNode
     """
     ScaledDotProductAttention缩放点积注意力节点
-    用法：PyTorch 2.0+原生高效的缩放点积注意力
+    用法：显式计算注意力分数、权重和加权结果
     调用示例：
         输入 q: shape=[batch, seq_len, features]
         输入 k: shape=[batch, seq_len, features]
@@ -193,25 +197,25 @@ class ScaledDotProductAttentionNode(BaseNode):  # 继承BaseNode
         "embed_dim": {
             "label": "嵌入维度",
             "type": "int",
-            "value": 512,
+            "value": 8,
             "range": [1, 65536],
         },  # 查询特征维度
         "kdim": {
             "label": "键维度",
             "type": "int",
-            "value": 512,
+            "value": 8,
             "range": [1, 65536],
         },  # 键特征维度
         "vdim": {
             "label": "值维度",
             "type": "int",
-            "value": 512,
+            "value": 8,
             "range": [1, 65536],
         },  # 值特征维度
         "num_heads": {
             "label": "头数",
             "type": "int",
-            "value": 8,
+            "value": 2,
             "range": [1, 256],
         },  # 注意力头数量
         "dropout": {
@@ -221,11 +225,6 @@ class ScaledDotProductAttentionNode(BaseNode):  # 继承BaseNode
             "range": [0, 1],
         },  # Dropout率
         "bias": {"label": "偏置", "type": "bool", "value": True},  # 是否使用偏置
-        "project": {
-            "label": "投影维度",
-            "type": "bool",
-            "value": True,
-        },  # 是否对K/V进行维度投影
     },
     description="跨模态/跨序列注意力，处理不同来源的查询、键、值",  # 节点描述
 )
@@ -242,60 +241,20 @@ class CrossAttentionNode(BaseNode):  # 继承BaseNode
     """
 
     def build(self):  # 构建层
-        embed_dim = self.params.get("embed_dim", 512)  # 获取查询嵌入维度
-        kdim = self.params.get("kdim", 512)  # 获取键维度
-        vdim = self.params.get("vdim", 512)  # 获取值维度
-        num_heads = self.params.get("num_heads", 8)  # 获取头数
+        embed_dim = self.params.get("embed_dim", 8)  # 获取查询嵌入维度
+        kdim = self.params.get("kdim", 8)  # 获取键维度
+        vdim = self.params.get("vdim", 8)  # 获取值维度
+        num_heads = self.params.get("num_heads", 2)  # 获取头数
         dropout = self.params.get("dropout", 0.1)  # 获取Dropout率
         bias = self.params.get("bias", True)  # 获取偏置标志
-        project = self.params.get("project", True)  # 获取投影标志
-
-        self.embed_dim = embed_dim  # 保存嵌入维度
-        self.num_heads = num_heads  # 保存头数
-        self.project = project  # 保存投影标志
-
-        if project:  # 如果需要对K/V进行维度投影
-            # 创建Q、K、V的线性投影层
-            self.q_proj = nn.Linear(embed_dim, embed_dim, bias=bias)  # 查询投影
-            self.k_proj = nn.Linear(kdim, embed_dim, bias=bias)  # 键投影到embed_dim
-            self.v_proj = nn.Linear(vdim, embed_dim, bias=bias)  # 值投影到embed_dim
-        else:  # 不使用投影，直接使用输入维度
-            # 确保K/V维度与embed_dim匹配
-            if kdim != embed_dim or vdim != embed_dim:
-                raise ValueError("不使用投影时，kdim和vdim必须等于embed_dim")
-
-        # 创建最终输出投影层
-        self.out_proj = nn.Linear(embed_dim, embed_dim, bias=bias)  # 输出投影
-
-        # 设置Dropout
-        self.dropout = nn.Dropout(dropout) if dropout > 0 else None
+        if num_heads <= 0 or embed_dim % num_heads != 0:
+            raise ValueError("embed_dim必须能被num_heads整除")  # 每个头必须获得相同宽度的查询特征
+        self.attention = nn.MultiheadAttention(embed_dim=embed_dim, num_heads=num_heads, dropout=dropout, bias=bias, kdim=kdim, vdim=vdim, batch_first=True)  # 原生层负责Q/K/V投影、分头计算和输出投影
 
     def compute(self, input):  # 计算方法
         q = input.get("q")  # 获取查询张量
         k = input.get("k")  # 获取键张量
         v = input.get("v")  # 获取值张量
 
-        if self.project:  # 如果使用投影
-            q = self.q_proj(q)  # 投影查询
-            k = self.k_proj(k)  # 投影键
-            v = self.v_proj(v)  # 投影值
-
-        # 实现跨注意力计算
-        # 1. 缩放点积注意力
-        d_k = q.size(-1)  # 获取查询维度
-        scores = torch.matmul(q, k.transpose(-2, -1)) / (d_k**0.5)  # 计算注意力分数
-
-        # 2. 应用softmax
-        attn_weights = F.softmax(scores, dim=-1)  # 计算注意力权重
-
-        # 3. 应用Dropout（如果有）
-        if self.dropout:
-            attn_weights = self.dropout(attn_weights)
-
-        # 4. 计算加权和
-        out = torch.matmul(attn_weights, v)  # 应用注意力权重到值
-
-        # 5. 输出投影
-        out = self.out_proj(out)
-
+        out, attn_weights = self.attention(q, k, v, average_attn_weights=False)  # 原生实现返回[batch, head, query, key]独立多头权重
         return {"out": out, "attn_weights": attn_weights}  # 返回两个输出

@@ -6,7 +6,6 @@ nodes/loss.py - 损失函数节点组
 
 import torch  # 导入torch用于张量操作
 import torch.nn as nn  # 导入nn模块用于构建层
-import torch.nn.functional as F  # 导入F用于binary_cross_entropy等函数
 from registry import category, node, BaseNode  # 从registry导入装饰器和基类
 
 
@@ -85,7 +84,7 @@ class MSELossNode(BaseNode):  # 继承BaseNode
             "label": "忽略索引",
             "type": "int",
             "value": -100,
-            "range": [-1, 65536],
+            "range": [-100, 65536],
         },  # 要忽略的目标索引
         "label_smoothing": {
             "label": "标签平滑",
@@ -118,8 +117,10 @@ class CrossEntropyLossNode(BaseNode):  # 继承BaseNode
 
     def compute(self, input):  # 计算方法
         input_tensor = input.get("input")  # 获取预测logits
-        target = input.get("target")  # 获取目标类别
-        loss = self.ce_loss(input_tensor, target)  # 计算交叉熵损失
+        target = input.get("target")  # 获取目标类别或同形类别分数
+        if target.shape == input_tensor.shape:  # 默认Input同时连接两端时将同形目标解释为类别分数
+            target = target.argmax(dim=1)  # PyTorch交叉熵的类别维固定为第1维
+        loss = self.ce_loss(input_tensor, target.long())  # 标准索引目标保持原语义并统一索引类型
         return {"loss": loss}  # 返回损失值
 
 
@@ -169,9 +170,9 @@ class L1LossNode(BaseNode):  # 继承BaseNode
     label="二分类交叉熵损失",  # 节点显示名称
     ports={  # 端口定义
         "input": {
-            "input": "预测概率",
+            "input": "预测logits",
             "target": "目标标签",
-        },  # 两个输入端口：预测概率和目标标签
+        },  # 两个输入端口：预测logits和目标标签
         "output": {"loss": "损失值"},  # 一个输出端口：损失值
     },
     params={  # 参数定义
@@ -181,50 +182,32 @@ class L1LossNode(BaseNode):  # 继承BaseNode
             "value": "mean",
             "options": {"mean": "平均值", "sum": "总和", "none": "无聚合"},
         },  # 损失聚合方式
-        "weight": {"label": "类别权重", "type": "list", "value": [1.0]},  # 各样本的权重
+        "pos_weight": {"label": "正类权重", "type": "float", "value": 1.0, "range": [0.0, 100.0]},  # 正样本损失倍率
     },
-    description="二分类问题的交叉熵损失，输入为概率（需先sigmoid）",  # 节点描述
+    description="数值稳定的二分类交叉熵损失，输入为未经过sigmoid的logits",  # 节点描述
 )
 class BCELossNode(BaseNode):  # 继承BaseNode
     """
-    BCELoss二分类交叉熵损失节点
-    用法：loss = -[target*log(input) + (1-target)*log(1-input)]
+    BCEWithLogitsLoss二分类交叉熵损失节点
+    用法：内部合并Sigmoid与BCE，避免概率接近0或1时数值不稳定
     调用示例：
-        输入 input: shape=[任意形状]，值应在[0,1]区间
-        输入 target: shape=[与input相同]，值应在[0,1]区间
-        输出 loss: shape=[根据reduction决��]
+        输入 input: shape=[任意形状]，值为未归一化logits
+        输入 target: shape=[与input相同]，超出[0,1]时自动从[-1,1]映射
+        输出 loss: shape=[根据reduction决定]
     """
 
     def build(self):  # 构建损失函数
         reduction = self.params.get("reduction", "mean")  # 获取聚合方式
-        weight = self.params.get("weight", [1.0])  # 获取权重
-        self.bce_loss = nn.BCELoss(reduction=reduction)  # 创建BCELoss层
-        if len(weight) > 1 or weight[0] != 1.0:  # 如果有自定义权重
-            self.weight_tensor = torch.tensor(weight, dtype=torch.float)  # 创建权重张量
+        pos_weight = self.params.get("pos_weight", 1.0)  # 获取正类权重，默认不额外加权
+        self.bce_loss = nn.BCEWithLogitsLoss(  # 创建数值稳定的logits损失层
+            reduction=reduction,
+            pos_weight=torch.tensor(pos_weight, dtype=torch.float),
+        )
 
     def compute(self, input):  # 计算方法
-        input_tensor = input.get("input")  # 获取预测概率
+        input_tensor = input.get("input")  # 获取预测logits
         target = input.get("target")  # 获取目标标签
-
-        # 如果有自定义权重，需要手动计算加权损失
-        if hasattr(self, "weight_tensor"):
-            # 将权重广播到正确的形状
-            weight = self.weight_tensor.to(input_tensor.device)  # 移动到相同设备
-            # 简单实现：假设权重作用于batch维度
-            if weight.dim() == 1 and weight.size(0) == input_tensor.size(0):
-                # 扩展权重维度以匹配输入
-                weight = weight.view(-1, *([1] * (input_tensor.dim() - 1)))  # 扩展维度
-                loss = F.binary_cross_entropy(
-                    input_tensor, target, weight=weight, reduction="none"
-                )  # 无聚合
-                if self.params.get("reduction", "mean") == "mean":  # 平均值
-                    loss = loss.mean()
-                elif self.params.get("reduction", "mean") == "sum":  # 总和
-                    loss = loss.sum()
-                return {"loss": loss}  # 返回损失值
-            else:
-                # 权重不匹配，使用默认损失
-                pass
-
-        loss = self.bce_loss(input_tensor, target)  # 计算二分类交叉熵损失
+        if torch.any((target < 0) | (target > 1)):  # 默认随机Input位于[-1,1)，需要转换为合法软标签
+            target = ((target + 1.0) / 2.0).clamp(0.0, 1.0)  # 映射并兜底限制到目标区间
+        loss = self.bce_loss(input_tensor, target.to(input_tensor.dtype))  # 计算稳定的二分类交叉熵损失
         return {"loss": loss}  # 返回损失值

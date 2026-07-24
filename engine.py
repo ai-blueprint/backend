@@ -193,7 +193,7 @@ def validateModelInputs(model, modelInputs):
 # --- 读取输入节点已校验形状 ---
 def getInputShape(model, inputID):
     module = model.nodeModules[model.moduleKeys[inputID]]  # 编译节点已把前端参数对象解包为业务值
-    shape = module.params.get("out_shape", [4, 4])  # 输入节点缺省沿用预览形状
+    shape = module.params.get("out_shape", [2, 4, 8])  # 输入节点缺省沿用全项目统一的小型预览形状
     if not isinstance(shape, (list, tuple)) or not shape or not all(isinstance(size, int) and size > 0 for size in shape):
         raise BlueprintError("invalidInputShape", f"输入节点形状无效: {inputID}", {"nodeId": inputID, "shape": shape})  # torch.randn需要正整数序列
     return list(shape)  # 返回独立列表避免修改节点参数
