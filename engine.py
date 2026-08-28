@@ -7,13 +7,16 @@ forward 接收按输入节点 ID 命名的值，返回按输出节点 ID 命名�
 """
 
 import inspect  # 回调能力，用于兼容同步和异步通知
+import json  # 缓存键编码能力，用于比较蓝图业务内容是否变化
 import math  # 有限数值判断能力，用于生成浏览器可解析JSON
+import zlib  # 稳定哈希能力，用于把节点ID转换为固定初始化种子
 import time  # 单调计时能力，用于记录节点和蓝图耗时
 from collections import defaultdict  # 边分组能力，用于快速收集节点输入
 
 import torch  # 张量能力，用于模型执行和结果序列化
 import torch.nn as nn  # 神经网络容器，用于持久注册蓝图参数
 
+import expressions  # 变量表达式能力，把参数中的变量引用消解为具体数值
 import loader  # 节点加载能力，导入内置节点定义
 import registry  # 节点注册能力，按操作码创建节点实例
 import sort  # 图排序能力，确定稳定执行顺序
@@ -32,6 +35,14 @@ class BlueprintError(Exception):
 
     def toData(self):
         return {"code": self.code, "message": str(self), "details": self.details}  # 输出协议可直接序列化的数据
+
+
+# --- 计算节点的固定初始化种子 ---
+def getNodeSeed(nodeID):
+    """
+    用法：seed = getNodeSeed("linear-1")  # 同一节点ID永远得到同一初始化种子
+    """
+    return zlib.crc32(str(nodeID).encode("utf-8"))  # CRC32稳定且跨进程一致，节点ID不变则权重初始化不变
 
 
 # --- 筛选所有能接收到输入传播的节点 ---
@@ -79,6 +90,10 @@ class BlueprintModel(nn.Module):
             raise BlueprintError("invalidBlueprint", "blueprint必须是对象")  # 图结构不是对象时无法继续编译
 
         self.blueprint = blueprint  # 保留原始定义供实验信息追踪
+        try:
+            self.variables = expressions.getVariablesMap(blueprint.get("variables", []))  # 蓝图级变量表供所有节点参数引用
+        except ValueError as error:
+            raise BlueprintError("invalidVariable", str(error)) from error  # 变量定义错误统一走结构化协议
         allNodes = blueprint.get("nodes", [])  # 读取画布全部节点，其中可能包含断开的教学草稿
         allEdges = blueprint.get("edges", [])  # 读取画布全部连线用于输入可达性分析
         self.nodes, self.edges = selectActiveGraph(allNodes, allEdges)  # 裁剪为输入节点能够传播到的全部下游
@@ -99,9 +114,14 @@ class BlueprintModel(nn.Module):
 
         self.inputIDs = [nodeID for nodeID in self.sortedIDs if self._getOpcode(nodeID) == "input"]  # 包含所有随机传播起点
         self.outputIDs = [nodeID for nodeID in self.sortedIDs if self._getOpcode(nodeID) == "output"]  # 只包含真正接到输入的输出节点
+        self.targetNodeIDs = self._findTargetBranchNodes()  # 目标分支只生成答案，不参与权重更新
 
         self.lastNodeResults = {}  # 保存最近一次完整端口结果，预览回调和调试可读取
         self.lastNodeDurations = {}  # 保存最近一次逐节点耗时，结构化反馈统一消费
+        self.trainingInputs = {}  # 保存训练批次，连续训练时每一步使用同一组输入和目标
+        trainableParameters = [parameter for nodeID in self.sortedIDs if nodeID not in self.targetNodeIDs for parameter in self.nodeModules[self.moduleKeys[nodeID]].parameters() if parameter.requires_grad]  # 只收集预测分支的可学习参数
+        self.optimizerConfig = {"name": "sgd", "learningRate": 0.01, "gradientClip": 0.0}  # 保存当前训练超参数，蓝图变化时重新使用默认值
+        self.optimizer = torch.optim.SGD(trainableParameters, lr=0.01) if trainableParameters else None  # 无可学习参数的普通蓝图不创建空优化器
 
     # --- 校验并创建单个节点 ---
     def _createNode(self, nodeID, node):
@@ -110,13 +130,33 @@ class BlueprintModel(nn.Module):
         if opcode not in registry.nodes:
             raise BlueprintError("unknownNode", f"未知的节点类型: {opcode}", {"nodeId": nodeID, "opcode": opcode})  # 未注册类型无法编译
         try:
-            return registry.createNode(opcode, nodeID, data.get("params", {}))  # 参数只在编译时校验并创建模块
+            resolvedParams = expressions.resolveNodeParams(data.get("params", {}), self.variables)  # 变量引用在编译时消解为具体数值
+        except ValueError as error:
+            raise BlueprintError("invalidExpression", f"参数表达式无效: {error}", {"nodeId": nodeID, "opcode": opcode}) from error
+        try:
+            with torch.random.fork_rng(devices=[]):  # 隔离全局随机状态，节点初始化种子不影响随机输入生成
+                torch.manual_seed(getNodeSeed(nodeID))  # 同一节点ID每次编译都用相同种子，权重跨轮次和重启保持一致
+                return registry.createNode(opcode, nodeID, resolvedParams)  # 参数只在编译时校验并创建模块
         except Exception as error:
             raise BlueprintError("nodeBuildFailed", f"创建节点实例失败: {error}", {"nodeId": nodeID, "opcode": opcode}) from error
 
     # --- 读取节点操作码 ---
     def _getOpcode(self, nodeID):
         return self.nodeData[nodeID].get("data", {}).get("opcode", "")  # 从原始蓝图读取稳定操作码
+
+    # --- 找出输出目标端口上游的目标分支 ---
+    def _findTargetBranchNodes(self):
+        incoming = defaultdict(list)  # 保存每个节点各端口的来源节点
+        for edge in self.edges:
+            incoming[(edge.get("target", ""), edge.get("targetHandle", "in"))].append(edge.get("source", ""))  # 按目标端口记录上游
+        targetIDs = set()  # 保存所有目标分支节点
+        pending = [sourceID for outputID in self.outputIDs for sourceID in incoming.get((outputID, "target"), [])]  # 从Output.target入口开始回溯
+        while pending:
+            nodeID = pending.pop()  # 取出一个待回溯节点
+            if nodeID in targetIDs: continue  # 已访问节点无需重复回溯
+            targetIDs.add(nodeID)  # 标记目标分支节点
+            pending.extend(sourceID for (targetID, _), sourceIDs in incoming.items() if targetID == nodeID for sourceID in sourceIDs)  # 继续寻找更上游节点
+        return targetIDs  # 返回目标分支节点集合
 
     # --- 按图路由并执行所有节点 ---
     def forward(self, modelInputs=None, nodeCallback=None):
@@ -166,11 +206,111 @@ class BlueprintModel(nn.Module):
             return outputValues["out"]  # 普通单输出叶节点保持直观返回值
         return outputValues  # 多端口叶节点保留全部端口
 
+    # --- 执行一次带目标值的训练步骤 ---
+    def configureOptimizer(self, optimizerName="sgd", learningRate=0.01):
+        optimizerName = str(optimizerName).lower()  # 统一优化器名称大小写
+        learningRate = float(learningRate)  # 统一学习率类型
+        if optimizerName not in {"sgd", "adam"} or not math.isfinite(learningRate) or learningRate <= 0:
+            raise BlueprintError("invalidTrainingConfig", "优化器只能选择SGD或Adam，学习率必须是正数")  # 拒绝无效训练配置
+        if self.optimizerConfig["name"] == optimizerName and self.optimizerConfig["learningRate"] == learningRate:
+            return  # 配置没有变化时保留已有优化器动量
+        parameters = [parameter for nodeID in self.sortedIDs if nodeID not in self.targetNodeIDs for parameter in self.nodeModules[self.moduleKeys[nodeID]].parameters() if parameter.requires_grad]  # 只让预测分支参数进入优化器
+        optimizerClass = torch.optim.Adam if optimizerName == "adam" else torch.optim.SGD  # 按用户选择创建优化器
+        self.optimizer = optimizerClass(parameters, lr=learningRate)  # 更换优化器并保留当前模型权重
+        self.optimizerConfig.update({"name": optimizerName, "learningRate": learningRate})  # 记录本次生效配置
+
+    # --- 执行一次带目标值的训练步骤 ---
+    def trainStep(self, maxValues=65536, optimizerName="sgd", learningRate=0.01, gradientClip=0.0):
+        if self.optimizer is None:
+            raise BlueprintError("noTrainableParameters", "蓝图中没有可训练参数，请加入Linear等可学习节点")  # 没有参数时无法执行权重更新
+        self.configureOptimizer(optimizerName, learningRate)  # 应用用户本轮选择的优化器和学习率
+        gradientClip = float(gradientClip)  # 统一梯度裁剪阈值类型
+        if not math.isfinite(gradientClip) or gradientClip < 0:
+            raise BlueprintError("invalidTrainingConfig", "梯度裁剪必须是大于等于0的数字")  # 零表示不裁剪
+        self.train()  # 打开可学习节点的训练行为
+        self.optimizer.zero_grad()  # 清除上一轮梯度，避免梯度跨轮累积
+        if not self.trainingInputs:
+            for inputID in self.inputIDs:
+                self.trainingInputs[inputID] = self.nodeModules[self.moduleKeys[inputID]]({}).get("out").detach()  # 第一步生成固定训练批次，后续重复使用
+        nodeResults = {}  # 保存本轮所有端口值供后续节点和损失读取
+        for nodeID in self.sortedIDs:
+            inputValues = self._collectInputs(nodeID, nodeResults, self.trainingInputs)  # 沿蓝图连线收集输入并复用固定训练批次
+            if self._getOpcode(nodeID) != "input" and any(value is None for value in inputValues.values()):
+                continue  # 目标或预测分支断路时跳过当前节点
+            try:
+                outputValues = self.nodeModules[self.moduleKeys[nodeID]](inputValues)  # 保留梯度执行真实节点
+            except Exception as error:
+                raise BlueprintError("nodeExecutionFailed", f"节点执行失败: {error}", {"nodeId": nodeID, "opcode": self._getOpcode(nodeID)}) from error
+            if not isinstance(outputValues, dict):
+                raise BlueprintError("invalidNodeOutput", "节点输出必须是端口对象", {"nodeId": nodeID})  # 图路由依赖命名端口
+            nodeResults[nodeID] = outputValues  # 当前结果进入后续节点
+
+        outputValues = [nodeResults[nodeID] for nodeID in self.outputIDs if nodeID in nodeResults]  # 只读取实际到达的输出节点
+        trainingOutput = next((value for value in outputValues if value.get("target") is not None), None)  # 有目标端口才进入训练模式
+        if not trainingOutput or trainingOutput.get("out") is None:
+            raise BlueprintError("trainingNotConfigured", "请把预测分支和目标分支同时连接到输出节点")  # 没有完整训练接口时拒绝更新权重
+        prediction = trainingOutput["out"]  # 输出节点的out代表模型预测结果
+        target = trainingOutput["target"]  # 输出节点的target代表目标分支结果
+        if not isinstance(prediction, torch.Tensor) or not isinstance(target, torch.Tensor):
+            raise BlueprintError("invalidTrainingData", "预测值和目标值必须是张量")  # 损失函数不能处理空值或普通对象
+        target = target.detach()  # 目标分支只提供答案，不允许目标生成网络参与反向传播
+        if prediction.shape != target.shape:
+            raise BlueprintError("trainingShapeMismatch", f"预测形状{list(prediction.shape)}与目标形状{list(target.shape)}不一致", {"predictionShape": list(prediction.shape), "targetShape": list(target.shape)})  # 形状不同无法逐元素比较
+        loss = torch.mean((prediction - target.to(prediction.dtype)) ** 2)  # 第一版使用通用均方误差，不引入额外训练节点
+        if not torch.isfinite(loss):
+            raise BlueprintError("invalidLoss", "损失值不是有限数字")  # 无效损失不能继续更新权重
+        beforeWeights = {nodeID: {name: parameter.detach().clone() for name, parameter in self.nodeModules[self.moduleKeys[nodeID]].named_parameters()} for nodeID in self.sortedIDs}  # 训练前按参数名保存小型权重快照
+        loss.backward()  # 计算所有预测分支可学习节点的梯度
+        if gradientClip > 0:
+            torch.nn.utils.clip_grad_norm_(self.optimizer.param_groups[0]["params"], gradientClip)  # 超过阈值时限制梯度，避免训练爆炸
+        self.optimizer.step()  # 使用梯度更新模型权重
+        nodeTraining = {}  # 保存每个节点的权重、梯度和变化量
+        for nodeID in self.sortedIDs:
+            if nodeID in self.targetNodeIDs: continue  # 目标分支的参数不属于模型训练结果
+            parameters = list(self.nodeModules[self.moduleKeys[nodeID]].named_parameters())  # 读取当前节点自身的参数名和值
+            if not parameters:
+                continue  # 无参数节点不需要显示训练矩阵
+            nodeTraining[nodeID] = {"parameters": [{"nodeId": nodeID, "name": name, "weight": serializeValue(parameter.detach(), maxValues), "gradient": serializeValue(parameter.grad.detach() if parameter.grad is not None else torch.zeros_like(parameter), maxValues), "delta": serializeValue((parameter.detach() - beforeWeights[nodeID][name]).detach(), maxValues)} for name, parameter in parameters] }  # 每个参数明确归属节点和真实名称
+        return {"loss": float(loss.detach().item()), "prediction": serializeValue(prediction, maxValues), "target": serializeValue(target, maxValues), "nodes": nodeTraining}  # 返回一轮训练的完整可视化快照
+
 
 # --- 编译持久蓝图模型 ---
 def compileBlueprint(blueprint):
     with registry.registryLock:
         return BlueprintModel(blueprint)  # 编译期间阻止插件重载替换注册项
+
+
+modelCache = {"key": None, "model": None}  # 只缓存最近一张蓝图的编译结果，蓝图不变时复用同一组权重
+
+
+# --- 计算蓝图业务内容的缓存键 ---
+def getModelCacheKey(blueprint):
+    businessData = {
+        "variables": [(item.get("name"), item.get("value")) for item in blueprint.get("variables", []) if isinstance(item, dict)],  # 变量名称和值决定表达式展开结果
+        "nodes": [(node.get("id"), node.get("data", {}).get("opcode"), node.get("data", {}).get("params")) for node in blueprint.get("nodes", [])],  # 节点身份、类型和参数决定模块构建
+        "edges": [(edge.get("source"), edge.get("sourceHandle"), edge.get("target"), edge.get("targetHandle")) for edge in blueprint.get("edges", [])],  # 端口连接决定数据流
+    }  # 画布坐标和显示名不影响执行，不参与缓存键
+    return json.dumps(businessData, sort_keys=True, ensure_ascii=False, default=str)  # 稳定文本键便于直接比较
+
+
+# --- 蓝图未变化时复用已编译模型 ---
+def compileBlueprintCached(blueprint):
+    """
+    用法：model = compileBlueprintCached(blueprint)  # 连续运行同一蓝图时保持权重不变
+    """
+    cacheKey = getModelCacheKey(blueprint)  # 只依据业务内容判断蓝图是否变化
+    if modelCache["key"] == cacheKey and modelCache["model"] is not None:
+        return modelCache["model"]  # 蓝图未变时返回同一模型，随机的只有输入张量
+    model = compileBlueprint(blueprint)  # 蓝图变化后重新编译并重新初始化权重
+    modelCache["key"] = cacheKey  # 记录当前蓝图键
+    modelCache["model"] = model  # 替换唯一缓存槽位
+    return model  # 返回新编译模型
+
+
+# --- 清空模型缓存 ---
+def clearModelCache():
+    modelCache["key"] = None  # 节点热重载后旧模型持有过期节点类
+    modelCache["model"] = None  # 释放模型引用，下一次运行重新编译
 
 
 # --- 将 JSON 输入规格转换为张量 ---
@@ -257,7 +397,7 @@ def serializeValue(value, maxValues=65536):
 async def run(blueprint, onMessage, onError, inputs=None, maxValues=65536, compiledModel=None):
     startedAt = time.perf_counter()  # 蓝图总耗时从编译前开始计算
     try:
-        model = compiledModel or compileBlueprint(blueprint)  # 默认按当前蓝图编译，也允许内部测试复用现有模型
+        model = compiledModel or compileBlueprintCached(blueprint)  # 蓝图未变时复用同一模型，让连续观察保持权重稳定
         model.eval()  # 预览默认关闭 dropout 等训练随机行为
         modelInputs = validateModelInputs(model, parseInputs(inputs))  # 输入名称必须对应显式InputNode
         nodeResults = {}  # 当前轮次保存已经传播完成的节点端口值

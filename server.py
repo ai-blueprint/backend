@@ -14,6 +14,7 @@ from websockets.exceptions import InvalidMessage  # 握手异常类型，用于�
 
 import engine  # 蓝图执行能力，提供随机输入传播和结构化结果
 import registry  # 节点注册表能力，提供编辑器节点定义
+import scan  # Block静态扫描能力，提供可堆叠结论
 
 clients = set()  # 保存当前编辑器连接，供节点热重载广播使用
 
@@ -111,7 +112,24 @@ async def handleMessage(ws, message):
             await sendMessage(ws, "blueprintComplete", messageId, result)  # 整张蓝图只发送一次终态
             return
 
-        await sendError(ws, "unknown", messageId, {"code": "unknownMessage", "message": f"未知消息类型: {messageType}", "details": {}})  # 明确拒绝训练和产物等非实验消息
+        if messageType == "scanBlueprint":
+            blueprint = getBlueprint(messageData)  # 静态扫描与运行共享同一蓝图字段
+            await sendMessage(ws, "scanBlueprint", messageId, scan.scanBlueprint(blueprint))  # 一次请求返回完整可堆叠结论
+            return
+
+        if messageType == "trainStep":
+            blueprint = getBlueprint(messageData)  # 单步训练使用当前完整蓝图
+            model = engine.compileBlueprintCached(blueprint)  # 蓝图不变时保留权重和优化器状态
+            result = model.trainStep(messageData.get("maxValues", 65536), messageData.get("optimizer", "sgd"), messageData.get("learningRate", 0.01), messageData.get("gradientClip", 0.0))  # 使用用户超参数执行一次前向、反向和权重更新
+            await sendMessage(ws, "trainStep", messageId, result)  # 返回loss、预测值、目标值和节点训练快照
+            return
+
+        if messageType == "resetTraining":
+            engine.clearModelCache()  # 丢弃权重和优化器状态，下次训练重新按节点ID初始化
+            await sendMessage(ws, "resetTraining", messageId, {"status": "reset"})  # 告知前端训练已经回到初始状态
+            return
+
+        await sendError(ws, "unknown", messageId, {"code": "unknownMessage", "message": f"未知消息类型: {messageType}", "details": {}})  # 未知指令统一返回结构化错误
     except Exception as error:
         if messageType == "runBlueprint":
             terminal = {"status": "failed", "error": getErrorData(error), "outputNodeIds": [], "errorCount": 1, "durationMs": 0.0}  # 畸形运行也使用唯一终态收口

@@ -41,13 +41,14 @@ class InputNode(BaseNode):  # 继承BaseNode
 @node(  # 注册输出节点
     opcode="output",  # 节点操作码
     label="输出",  # 节点显示名称
-    ports={"input": {"in": ""}, "output": {}},  # 端口定义，输出节点没有输出端口
-    description="接收并输出最终结果",  # 节点描述
+    ports={"input": {"in": "预测值", "target": "目标值"}, "output": {}},  # 输出节点同时接收预测值和可选目标值
+    description="接收预测结果，可连接目标值进入训练模式",  # 节点描述
 )
 class OutputNode(BaseNode):  # 继承BaseNode
     def compute(self, input):  # 计算方法
-        value = input.get("in", None)  # 获取输入值
-        return {"out": value}  # 保留终点值，供显式模型输出、训练和导出统一读取
+        prediction = input.get("prediction", input.get("in", None))  # 保留旧in端口，同时允许未来协议使用prediction名称
+        target = input.get("target", None)  # 目标端口没有连接时保持普通前向传播
+        return {"out": prediction, "target": target}  # 同时保留预测和目标供运行与训练协议读取
 
 
 @node(  # 注册调试节点

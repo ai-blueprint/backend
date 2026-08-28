@@ -5,6 +5,7 @@ import os  # 操作系统库，用于拼接目录路径
 import loader  # 复用已有节点重载能力
 import registry  # 复用已有注册表能力
 import plugins  # 插件重载能力，保证核心节点热重载后恢复插件注册
+import engine  # 模型缓存能力，节点实现更新后必须丢弃旧编译模型
 
 
 async def runHotReload(broadcast, folder="nodes"):
@@ -30,6 +31,7 @@ async def runHotReload(broadcast, folder="nodes"):
         try:
             loader.reloadAll(folder)  # 全量重建注册表，复用已有重载逻辑
             plugins.reloadPlugins()  # 核心注册表清空后重新挂载全部启用插件
+            engine.clearModelCache()  # 节点实现已替换，缓存模型必须按新注册表重建
             print("热重载完成，广播新registry")  # 输出成功日志
             await broadcast("registryUpdated", registry.getAllForFrontend())  # 广播更新后的注册表给前端
         except Exception as error:
