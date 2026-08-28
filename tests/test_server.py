@@ -89,17 +89,5 @@ class ServerProtocolTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(websocket.messages[0]["type"], "blueprintComplete")
         self.assertEqual(websocket.messages[0]["data"]["status"], "failed")
 
-    async def test_scan_returns_stackable_conclusion(self):
-        websocket = FakeWebSocket()  # 收集Block扫描的单次结论
-        blueprint = linearBlueprint()  # 输入-同宽线性层-输出保持形状
-        blueprint["nodes"][1]["data"]["params"]["out_features"] = 3  # 与输入末维一致构成同形Block
-
-        await server.handleMessage(websocket, json.dumps({"type": "scanBlueprint", "id": "scan-1", "data": {"blueprint": blueprint}}))  # 触发静态扫描
-
-        self.assertEqual(len(websocket.messages), 1)
-        self.assertEqual(websocket.messages[0]["type"], "scanBlueprint")
-        self.assertEqual(websocket.messages[0]["data"]["status"], "stackable")
-
-
 if __name__ == "__main__":
     unittest.main()

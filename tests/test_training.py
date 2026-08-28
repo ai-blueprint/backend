@@ -114,6 +114,19 @@ class TrainingProtocolTest(unittest.IsolatedAsyncioTestCase):
         self.assertIsNot(firstModel, secondModel)  # 后端不能继续使用旧权重
         self.assertEqual(websocket.messages[0]["data"]["status"], "reset")  # 前端应收到成功确认
 
+    async def test_shape_mismatch_returns_train_step_error(self):
+        blueprint = trainingBlueprint()  # 构造正常训练蓝图
+        blueprint["nodes"].insert(2, {"id": "target-linear", "data": {"opcode": "linear", "params": {"in_features": 3, "out_features": 4, "bias": True}}})  # 目标分支输出不同宽度制造形状冲突
+        blueprint["edges"][2]["target"] = "target-linear"  # 输入先进入目标变换节点
+        blueprint["edges"][2]["targetHandle"] = "x"  # 目标变换节点使用普通输入端口
+        blueprint["edges"].append({"id": "edge-target-layer", "source": "target-linear", "sourceHandle": "out", "target": "output-1", "targetHandle": "target"})  # 目标变换结果进入Output目标端口
+        websocket = FakeWebSocket()  # 收集训练失败消息
+
+        await server.handleMessage(websocket, json.dumps({"type": "trainStep", "id": "shape-error", "data": {"blueprint": blueprint}}))  # 通过协议触发形状错误
+
+        self.assertEqual(websocket.messages[0]["type"], "trainStep")  # 错误必须保留原请求类型
+        self.assertEqual(websocket.messages[0]["error"]["code"], "trainingShapeMismatch")  # 前端训练处理器需要收到稳定错误代码
+
 
 if __name__ == "__main__":
     unittest.main()
