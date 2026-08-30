@@ -1,110 +1,121 @@
-# 炼丹蓝图·后端 (AI Blueprint Backend)
+# 炼丹蓝图后端
 
-![Status](https://img.shields.io/badge/Status-Early_Dev-orange) ![Python](https://img.shields.io/badge/Python-3.12%2B-blue) ![License](https://img.shields.io/badge/License-AGPL_v3-green)
+后端负责读取蓝图、创建 PyTorch 节点、执行 Tensor 数据流，并通过 WebSocket 把结果返回给前端。
 
-> **炼丹蓝图**是一个可视化的 AI 模型构建平台，让复杂的神经网络搭建变得像搭积木一样简单直观。本项目为其后端服务，负责蓝图的解析、调度与执行。
+## 开始使用
 
----
+需要安装：
 
-## 🚧 当前状态
+- Python `3.12+`
+- [uv](https://docs.astral.sh/uv/)
 
-**【早期开发阶段】**
-- ✅ 核心蓝图执行引擎已跑通，支持拓扑排序与数据流转。
-- ✅ WebSocket 通信协议已定型，支持前后端实时交互。
-- ✅ 基础节点架构已确立，支持动态注册。
-- ⚠️ 目前内置节点种类较少，许多 AI 模型组件尚未实现。
-- 🤝 **我们非常欢迎社区贡献更多节点和功能！**
+安装依赖：
 
----
+```sh
+uv sync
+```
 
-## ✨ 功能亮点
+启动 WebSocket 服务：
 
-🔍 **可视化蓝图执行引擎**
-内置高效的图执行引擎 (`engine.py`)，能够自动解析前端传递的节点图，通过拓扑排序确定执行顺序，并处理复杂的节点间数据依赖。
+```sh
+uv run python main.py
+```
 
-🔌 **WebSocket 实时交互**
-基于 `websockets` 库构建的异步服务器 (`server.py`)，支持前端实时获取节点注册表 (`getRegistry`)、发送运行请求 (`runBlueprint`) 以及接收实时的执行结果与错误反馈。
+服务默认地址：
 
-🧩 **模块化节点系统**
-高度可扩展的节点注册机制 (`registry.py`)。开发者只需使用简单的 `@node` 和 `@category` 装饰器，即可快速将 PyTorch 代码封装为可视化节点，无需侵入核心逻辑。
+```text
+ws://127.0.0.1:8765
+```
 
-🔥 **原生 PyTorch 支持**
-底层无缝集成 PyTorch，所有节点本质上都是 `nn.Module`，确保了与主流深度学习生态的完美兼容性和高性能。
+## 后端职责
 
----
+```text
+前端蓝图
+→ WebSocket 请求
+→ 蓝图校验
+→ 节点注册表
+→ PyTorch 执行
+→ Tensor 和错误反馈
+```
 
-## 🚀 快速开始
+当前支持：
 
-### 前置要求
-- Python >= 3.12
-- [uv](https://github.com/astral-sh/uv) (推荐) 或 pip
+- 动态节点注册
+- 拓扑顺序执行
+- Tensor 逐节点反馈
+- 单节点错误反馈
+- 变量表达式
+- 普通前向传播
+- 单步训练和连续训练
+- Loss、权重和梯度反馈
+- SGD、Adam 和梯度裁剪
 
-### 安装与运行
+## 节点开发
 
-1. **克隆仓库**
-   ```bash
-   git clone https://github.com/ai-blueprint/backend.git
-   cd backend
-   ```
+节点放在 `nodes/` 目录中。普通节点使用统一定义：
 
-2. **安装依赖**
-   本项目使用 `uv` 进行包管理，推荐直接使用 `uv` 运行：
-   ```bash
-   # 如果没有安装 uv
-   pip install uv
-   ```
+```python
+@node(
+    opcode="example",
+    label="示例",
+    ports={"input": {"x": "输入"}, "output": {"out": "输出"}},
+    params={},
+    description="说明这个节点做什么",
+)
+class ExampleNode(BaseNode):
+    def compute(self, input):
+        return {"out": input.get("x")}
+```
 
-3. **启动服务**
-   ```bash
-   uv run python main.py
-   ```
-   *或者使用传统 pip 方式：*
-   ```bash
-   pip install -r requirements.txt  # 需自行导出
-   python main.py
-   ```
+节点使用 PyTorch Tensor 作为数据。节点输出必须是端口字典，例如：
 
-4. **服务状态**
-   启动成功后，控制台将显示：
-   ```
-   WebSocket服务已启动: ws://127.0.0.1:8765
-   ```
+```python
+return {"out": result}
+```
+
+不要在节点里加入具体模型的完整结构。RWKV、Transformer 等结构应由普通节点连接出来。
+
+## 注册表同步
+
+后端注册表是节点定义的来源。修改节点后运行：
+
+```sh
+uv run python export_registry.py
+```
+
+它会更新前端离线注册表：
+
+```text
+../frontend/src/constants/registry.json
+```
 
 ## WebSocket 协议
 
-所有请求使用 `{"type": "...", "id": "request-id", "data": {...}}`。响应保留相同 `id`，错误统一为 `{"code", "message", "details"}`。
+请求格式：
 
-| 请求 | `data` 关键字段 | 成功反馈 |
-|---|---|---|
-| `runBlueprint` | `blueprint`, `inputs?`, `maxValues?` | 多条 `nodeResult`，恰好一条 `blueprintComplete` |
+```json
+{"type":"runBlueprint","id":"request-id","data":{}}
+```
 
-输入张量可写为数组，或 `{"shape": [2, 3], "dtype": "float32", "values": [...]}`。节点结果的每个端口都使用 `kind`、`shape`、`dtype`、`device`、扁平 `values`、`totalElements` 和 `truncated` 描述，并附带 `opcode` 与 `durationMs`。
+当前主要请求：
 
-未提供 `inputs` 时，`InputNode` 会按节点中的 `out_shape` 参数生成 `[-1, 1)` 均匀分布随机张量。执行前会筛选所有从任意 `InputNode` 可达的节点，因此没有连接到 `OutputNode` 的半途分支也会继续计算；没有输入来源的节点不会创建、计算或返回可视化结果。数据按连线逐节点传播并实时反馈；单个节点执行失败只标记该节点并跳过依赖它的下游，其他有输入值的独立分支继续计算。
+| 请求 | 用途 |
+|---|---|
+| `getRegistry` | 获取节点注册表 |
+| `runBlueprint` | 执行一次蓝图前向传播 |
+| `trainStep` | 执行一次训练、反向传播和参数更新 |
+| `resetTraining` | 清除训练模型和优化器状态 |
 
----
+Tensor 结果包含形状、类型、设备、数值和是否截断等信息。
 
-## 📜 许可证
+## 测试
 
-本项目采用 **GNU AGPL v3** 许可证。
+```sh
+uv run python -m unittest discover -s tests -p "test_*.py"
+```
 
-- ✅ **欢迎贡献**：您可以自由地修改和分发本项目的代码。
-- 📢 **源码公开义务**：如果您将本项目用于网络服务（如 SaaS），您必须向用户公开您的修改源码。
-- 💼 **商业授权**：如需闭源商业使用或有其他特殊授权需求，请联系我们。
+后端测试覆盖节点默认执行、注册表同步、蓝图执行、训练、变量表达式和 WebSocket 协议。
 
----
+## 许可证
 
-## 🤝 贡献方式
-
-我们强烈鼓励通过 **Pull Request** 向本仓库贡献代码，共同完善这个开源项目，而不是创建封闭的商业 fork。
-
----
-
-## 📬 联系方式 / 社区
-
-- **QQ 交流群**：[1081197052](https://qun.qq.com/universal-share/share?ac=1&authKey=eLkj1QLdUkC2LQAiLKW2tmH87UgnLxrp22jPc0q4vlCPVy84SOSYOR3coq8pNZuB&busi_data=eyJncm91cENvZGUiOiIxMDgxMTk3MDUyIiwidG9rZW4iOiJVbzB3dmJQNVl0cnozaFpKQmYycStPa2k3TEd2ZytIVTRENklkSHptcHhPU1JHK203QzgyNHhOcE9KSldhd1Q2IiwidWluIjoiOTE3ODExNzI2In0%3D&data=zyq7dImFnIpdAx5x2Zs8oKjKC8DAvkepKvOczDGKaOPHRi7YJGAcrwXq-3upjpICMZ1hK13zJ1UT9bzdTO8WpA&svctype=4&tempid=h5_group_info)
-
-## 致开发者
->您可以先打开 `NOTICE/后端架构图.jpg` 文件查看整个项目的架构图，再进行开发。（可能已经旧了）
->整个项目是先设计的架构图，再根据架构图进行开发，所以架构图是后端开发过程中最重要的文档。
->此架构图的设计与逻辑调整耗费了我们大量的时间和脑力，希望开发者能够认真读完，相信能够快速理解整个项目的设计思路。
+本项目采用 GNU AGPL v3 许可证。
