@@ -41,7 +41,6 @@ registerUnary("logarithm", "对数函数", "#6fa8dc", "exp2", "二进制指数",
 registerUnary("logarithm", "对数函数", "#6fa8dc", "square", "平方", torch.square, "计算每个元素的平方")  # 注册square节点
 
 registerUnary("rounding", "取整与符号", "#8e7cc3", "signbit", "负号判断", torch.signbit, "判断每个元素是否为负数")  # 注册signbit节点
-registerUnary("rounding", "取整与符号", "#8e7cc3", "trunc", "截断取整", torch.trunc, "去掉每个元素的小数部分")  # 注册trunc节点
 
 registerBinary("binary", "二元运算", "#76a5af", "maximum", "逐元素最大", torch.maximum, "逐元素选择两个输入中较大的值")  # 注册maximum节点
 registerBinary("binary", "二元运算", "#76a5af", "minimum", "逐元素最小", torch.minimum, "逐元素选择两个输入中较小的值")  # 注册minimum节点
@@ -95,24 +94,3 @@ class AvgPool1dNode(PoolingNode):  # 继承统一池化节点
 class AdaptiveAvgPool1dNode(BaseNode):  # 继承BaseNode
     def compute(self, input):  # 计算方法
         return {"out": nn.functional.adaptive_avg_pool1d(input.get("x"), self.params.get("output_size", 4))}  # 使用PyTorch原生自适应平均池化
-
-
-category(id="transform", label="变换", color="#82cbfa", icon="")  # 随机正则化归入原有变换分类
-
-
-@node(opcode="dropout2d", label="二维随机失活", ports={"input": {"x": "输入"}, "output": {"out": "输出"}}, params={"p": {"label": "失活概率", "type": "float", "value": 0.5, "range": [0, 1]}}, description="按通道随机丢弃特征，适合图像和特征图")
-class Dropout2dNode(BaseNode):  # 继承BaseNode
-    def build(self):  # 构建随机失活模块
-        self.layer = nn.Dropout2d(self.params.get("p", 0.5))  # 创建PyTorch原生二维失活
-
-    def compute(self, input):  # 计算方法
-        return {"out": self.layer(input.get("x"))}  # 执行二维随机失活
-
-
-@node(opcode="dropout3d", label="三维随机失活", ports={"input": {"x": "输入"}, "output": {"out": "输出"}}, params={"p": {"label": "失活概率", "type": "float", "value": 0.5, "range": [0, 1]}}, description="按通道随机丢弃三维特征")
-class Dropout3dNode(BaseNode):  # 继承BaseNode
-    def build(self):  # 构建随机失活模块
-        self.layer = nn.Dropout3d(self.params.get("p", 0.5))  # 创建PyTorch原生三维失活
-
-    def compute(self, input):  # 计算方法
-        return {"out": self.layer(input.get("x"))}  # 执行三维随机失活

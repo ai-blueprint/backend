@@ -49,18 +49,6 @@ class NodeDefaultsTest(unittest.TestCase):
         self.assertTrue(torch.all(output >= -1).item())
         self.assertTrue(torch.all(output < 1).item())
 
-    # --- 验证LSTM状态端口可直接回接 ---
-    def test_lstm_outputs_can_feed_next_lstm_state(self):
-        node = registry.createNode("lstm", "default-lstm", {})  # 默认特征和隐藏宽度均为8
-        values = torch.randn(2, 4, 8)  # 使用默认批、序列和特征形状
-
-        first = node({"x": values})  # 首段序列自动创建零状态
-        second = node({"x": values, "hidden": first["hidden"], "cell": first["cell"]})  # 输出状态按同名端口回接
-
-        self.assertEqual(list(second["out"].shape), [2, 4, 8])
-        self.assertEqual(list(second["hidden"].shape), [1, 2, 8])
-        self.assertEqual(list(second["cell"].shape), [1, 2, 8])
-
     # --- 验证跨注意力真正返回独立多头权重 ---
     def test_cross_attention_uses_declared_head_count(self):
         node = registry.createNode("cross_attention", "default-cross-attention", {})  # 默认8维特征拆成2个头

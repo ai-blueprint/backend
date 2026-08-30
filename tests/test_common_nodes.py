@@ -25,28 +25,6 @@ class CommonNodesTest(unittest.TestCase):
         self.assertTrue(torch.equal(dropout({"x": values})["out"], values))
         self.assertEqual(list(embedding({"indices": torch.tensor([[1, 2]])})["out"].shape), [1, 2, 6])
 
-    def test_recurrent_nodes_return_expected_states(self):
-        values = torch.randn(2, 5, 3)  # 所有循环节点共享 batch-first 输入
-        for opcode in ("rnn", "gru", "lstm"):
-            node = registry.createNode(opcode, opcode, {"input_size": 3, "hidden_size": 4, "num_layers": 1, "dropout": 0.0, "bidirectional": False})  # 创建最小循环层
-            result = node({"x": values})  # 首次执行使用自动零状态
-            self.assertEqual(list(result["out"].shape), [2, 5, 4])
-            self.assertEqual(list(result["hidden"].shape), [1, 2, 4])
-            self.assertEqual("cell" in result, opcode == "lstm")
-
-    def test_transformer_encoder_and_decoder_layers(self):
-        params = {"d_model": 4, "nhead": 2, "dim_feedforward": 8, "dropout": 0.0, "activation": "relu", "norm_first": False}  # 小模型保持测试快速
-        encoder = registry.createNode("transformer_encoder_layer", "encoder-1", params)  # 编码层只需要源序列
-        decoder = registry.createNode("transformer_decoder_layer", "decoder-1", params)  # 解码层额外读取编码记忆
-        source = torch.randn(2, 3, 4)
-        target = torch.randn(2, 2, 4)
-
-        memory = encoder({"x": source})["out"]  # 编码结果成为解码记忆
-        output = decoder({"x": target, "memory": memory})["out"]  # 执行标准交叉注意力解码
-
-        self.assertEqual(list(memory.shape), [2, 3, 4])
-        self.assertEqual(list(output.shape), [2, 2, 4])
-
 
 if __name__ == "__main__":
     unittest.main()

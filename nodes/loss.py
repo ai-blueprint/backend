@@ -13,7 +13,7 @@ from registry import category, node, BaseNode  # 从registry导入装饰器和�
 
 category(  # 注册损失函数分类
     id="loss",  # 分类唯一标识
-    label="损失函数",  # 分类显示名称
+    label="损失",  # 分类显示名称
     color="#e44d60",  # 分类颜色，红色
     icon="",  # 分类图标
 )

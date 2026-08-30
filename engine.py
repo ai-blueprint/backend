@@ -127,7 +127,7 @@ class BlueprintModel(nn.Module):
     def _createNode(self, nodeID, node):
         data = node.get("data", {})  # 前端把节点类型和参数存放在 data 字段
         opcode = data.get("opcode", "")  # 操作码用于查找注册定义
-        if opcode not in registry.nodes:
+        if not registry.hasNode(opcode):
             raise BlueprintError("unknownNode", f"未知的节点类型: {opcode}", {"nodeId": nodeID, "opcode": opcode})  # 未注册类型无法编译
         try:
             resolvedParams = expressions.resolveNodeParams(data.get("params", {}), self.variables)  # 变量引用在编译时消解为具体数值

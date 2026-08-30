@@ -8,16 +8,30 @@ nodeOwners = {}  # 记录每个操作码的归属，插件不能静默覆盖内�
 categoryOwners = {}  # 记录每个分类的归属，重载结果可明确追踪
 registrationOwner = "core"  # 动态导入期间由插件加载器临时切换所有者
 currentCategoryId = None  # 保存当前节点文件正在使用的分类上下文
+nodeAliases = {
+    "dropout1d": ("dropout", {"mode": "channel1d"}), "dropout2d": ("dropout", {"mode": "channel2d"}), "dropout3d": ("dropout", {"mode": "channel3d"}), "alpha_dropout": ("dropout", {"mode": "alpha"}), "feature_alpha_dropout": ("dropout", {"mode": "feature_alpha"}),
+    "zeros_like": ("tensor_like", {"mode": "zeros"}), "ones_like": ("tensor_like", {"mode": "ones"}), "rand_like": ("tensor_like", {"mode": "random"}),
+    "floor": ("rounding", {"mode": "floor"}), "ceil": ("rounding", {"mode": "ceil"}), "round": ("rounding", {"mode": "round"}), "trunc": ("rounding", {"mode": "trunc"}),
+    "pixel_shuffle": ("pixel_rearrange", {"mode": "up", "factorFrom": "upscale_factor"}), "pixel_unshuffle": ("pixel_rearrange", {"mode": "down", "factorFrom": "downscale_factor"}),
+}  # 旧蓝图操作码集中迁移到统一节点
 
 friendlyLabels = {
-    "relu": "负数变零", "sigmoid": "压到0和1", "tanh": "压到负1和1", "softmax": "变成概率", "softplus": "平滑变正", "leakyRelu": "负数保留一点", "elu": "负数平滑变换", "gelu": "平滑门控",
-    "linear": "线性层", "conv": "卷积层", "pooling": "池化层", "dropout": "随机丢弃", "embedding": "数字变向量", "layer_norm": "按特征归一化", "group_norm": "分组归一化", "batch_norm": "按批归一化", "instance_norm": "按样本归一化", "rms_norm": "均方根归一化",
-    "reshape": "改变形状", "transpose": "交换两个维度", "permute": "重排列维度", "squeeze": "去掉单维度", "unsqueeze": "增加单维度", "flatten": "压平成一维", "unflatten": "拆开一个维度", "pad": "边缘补值", "detach": "切断梯度", "clone": "复制张量", "slice": "截取一段", "select": "选择一个位置", "cat": "连接张量", "stack": "叠起张量", "expand": "扩大尺寸", "time_shift": "向前移位",
-    "add": "相加", "sub": "相减", "mul": "相乘", "div": "相除", "matmul": "矩阵相乘", "bmm": "批量矩阵相乘", "einsum": "按公式计算", "lerp": "线性插值", "dot": "点积", "pow": "幂运算", "norm": "计算长度", "exp": "指数", "sqrt": "平方根", "sum": "求和", "abs": "取绝对值", "neg": "取相反数", "mean": "求平均值",
-    "mse_loss": "平均平方误差", "cross_entropy_loss": "分类误差", "l1_loss": "绝对值误差", "bce_loss": "二分类误差",
+    "input": "输入", "output": "输出", "debug": "调试", "linear": "Linear", "conv": "Conv", "pooling": "池化", "dropout": "Dropout", "embedding": "Embedding", "bilinear": "Bilinear", "conv_transpose": "ConvTranspose", "upsample": "Upsample", "channel_shuffle": "ChannelShuffle", "pixel_shuffle": "PixelShuffle", "pixel_unshuffle": "PixelUnshuffle", "identity": "Identity", "layer_norm": "LayerNorm", "group_norm": "GroupNorm", "batch_norm": "BatchNorm", "instance_norm": "InstanceNorm", "rms_norm": "RMSNorm",
+    "relu": "ReLU", "sigmoid": "Sigmoid", "tanh": "Tanh", "softmax": "Softmax", "softplus": "Softplus", "leakyRelu": "LeakyReLU", "elu": "ELU", "gelu": "GELU", "relu6": "ReLU6", "rrelu": "RReLU", "selu": "SELU", "celu": "CELU", "silu": "SiLU", "mish": "Mish", "hardsigmoid": "Hardsigmoid", "hardswish": "Hardswish", "log_sigmoid": "LogSigmoid", "prelu": "PReLU", "hardshrink": "Hardshrink", "softshrink": "Softshrink", "tanhshrink": "Tanhshrink", "threshold": "Threshold", "glu": "GLU", "softmin": "Softmin", "log_softmax": "LogSoftmax",
+    "multihead_attention": "MultiheadAttention", "scaled_dot_product_attention": "scaled_dot_product_attention", "cross_attention": "交叉注意力", "mse_loss": "MSELoss", "cross_entropy_loss": "CrossEntropyLoss", "l1_loss": "L1Loss", "bce_loss": "BCEWithLogitsLoss", "smooth_l1_loss": "SmoothL1Loss", "huber_loss": "HuberLoss", "poisson_nll_loss": "PoissonNLLLoss", "gaussian_nll_loss": "GaussianNLLLoss", "kl_div_loss": "KLDivLoss", "margin_ranking_loss": "MarginRankingLoss", "triplet_margin_loss": "TripletMarginLoss", "cosine_embedding_loss": "CosineEmbeddingLoss",
+    "reshape": "reshape", "transpose": "transpose", "permute": "permute", "squeeze": "squeeze", "unsqueeze": "unsqueeze", "flatten": "flatten", "unflatten": "unflatten", "pad": "pad", "detach": "detach", "clone": "clone", "slice": "切片", "select": "select", "cat": "cat", "stack": "stack", "expand": "expand", "time_shift": "时间移位", "chunk": "chunk", "roll": "roll", "flip": "flip", "repeat_interleave": "repeat_interleave",
+    "add": "add", "sub": "sub", "mul": "mul", "div": "div", "matmul": "matmul", "bmm": "bmm", "einsum": "einsum", "lerp": "lerp", "dot": "dot", "pow": "pow", "norm": "norm", "exp": "exp", "sqrt": "sqrt", "sum": "sum", "abs": "abs", "neg": "neg", "mean": "mean", "log": "log", "log10": "log10", "log2": "log2", "log1p": "log1p", "expm1": "expm1", "exp2": "exp2", "square": "square", "signbit": "signbit", "trunc": "trunc", "maximum": "maximum", "minimum": "minimum", "remainder": "remainder", "fmod": "fmod", "hypot": "hypot", "clamp": "clamp", "sign": "sign", "floor": "floor", "ceil": "ceil", "round": "round", "frac": "frac", "reciprocal": "reciprocal", "rsqrt": "rsqrt", "sin": "sin", "cos": "cos", "tan": "tan", "atan": "atan", "sinh": "sinh", "cosh": "cosh", "erf": "erf", "amax": "amax", "amin": "amin", "prod": "prod", "var": "var", "std": "std", "argmax": "argmax", "greater": "gt", "greater_equal": "ge", "less": "lt", "less_equal": "le", "equal": "eq", "zeros_like": "zeros_like", "ones_like": "ones_like", "rand_like": "rand_like", "max_pool1d": "MaxPool1d", "avg_pool1d": "AvgPool1d", "adaptive_avg_pool1d": "AdaptiveAvgPool1d", "dropout1d": "Dropout1d", "dropout2d": "Dropout2d", "dropout3d": "Dropout3d", "alpha_dropout": "AlphaDropout", "feature_alpha_dropout": "FeatureAlphaDropout", "local_response_norm": "LocalResponseNorm", "reflection_pad1d": "ReflectionPad1d", "cosine_similarity": "CosineSimilarity", "pairwise_distance": "PairwiseDistance", "scan": "cumsum", "fold": "cumprod", "cumulative_max": "cummax", "cumulative_min": "cummin",
 }
 
-categoriesOrder = ["base", "transform", "activation", "attention", "loss", "normalization", "shape", "math"]
+chineseLabels = {
+    "relu": "负数变零", "sigmoid": "压到零和一", "tanh": "压到负一和一", "softmax": "变成概率", "softplus": "平滑变正", "leakyRelu": "负数保留一点", "elu": "负数平滑变化", "gelu": "平滑门控", "relu6": "限制在零到六", "rrelu": "随机负数斜率", "selu": "自归一化激活", "celu": "连续指数激活", "silu": "平滑门控激活", "mish": "平滑自门控", "hardsigmoid": "快速压到零和一", "hardswish": "快速平滑门控", "log_sigmoid": "对数概率", "prelu": "可学习负数斜率", "hardshrink": "硬收缩小数", "softshrink": "软收缩小数", "tanhshrink": "减去双曲正切", "threshold": "低于阈值替换", "glu": "门控分成两半", "softmin": "小值变大概率", "log_softmax": "对数概率分布",
+    "linear": "线性层", "conv": "卷积层", "pooling": "池化", "dropout": "随机丢弃", "embedding": "嵌入", "bilinear": "双输入线性层", "conv_transpose": "转置卷积", "upsample": "上采样", "channel_shuffle": "通道重排", "pixel_shuffle": "像素上采样", "pixel_unshuffle": "像素下采样", "reflection_pad1d": "反射填充", "local_response_norm": "局部归一化", "dropout1d": "一维随机丢弃", "alpha_dropout": "Alpha随机丢弃", "feature_alpha_dropout": "特征随机丢弃", "cosine_similarity": "余弦相似度", "pairwise_distance": "成对距离", "max_pool1d": "一维最大池化", "avg_pool1d": "一维平均池化", "adaptive_avg_pool1d": "一维自适应平均池化", "dropout2d": "二维随机丢弃", "dropout3d": "三维随机丢弃",
+    "multihead_attention": "多头注意力", "scaled_dot_product_attention": "缩放点积注意力", "cross_attention": "交叉注意力", "mse_loss": "平均平方误差", "cross_entropy_loss": "分类误差", "l1_loss": "绝对值误差", "bce_loss": "二分类误差", "smooth_l1_loss": "平滑绝对值误差", "huber_loss": "Huber误差", "poisson_nll_loss": "泊松误差", "gaussian_nll_loss": "高斯误差", "kl_div_loss": "分布差异", "margin_ranking_loss": "排序误差", "triplet_margin_loss": "三元组误差", "cosine_embedding_loss": "方向相似误差",
+    "layer_norm": "层归一化", "group_norm": "组归一化", "batch_norm": "批归一化", "instance_norm": "样本归一化", "rms_norm": "均方根归一化", "reshape": "改变形状", "transpose": "交换维度", "permute": "重排维度", "squeeze": "去掉单维度", "unsqueeze": "增加单维度", "flatten": "压平维度", "unflatten": "拆开维度", "pad": "填充边缘", "select": "选择位置", "cat": "连接张量", "stack": "堆叠张量", "expand": "扩大尺寸", "time_shift": "时间移位", "chunk": "分成几块", "roll": "循环移位", "flip": "翻转顺序", "repeat_interleave": "重复元素",
+    "add": "相加", "sub": "相减", "mul": "相乘", "div": "相除", "matmul": "矩阵相乘", "bmm": "批量矩阵相乘", "einsum": "按公式运算", "lerp": "线性插值", "dot": "点积", "pow": "幂运算", "norm": "计算长度", "exp": "指数", "sqrt": "平方根", "sum": "求和", "abs": "绝对值", "neg": "相反数", "mean": "平均值", "log": "自然对数", "log10": "常用对数", "log2": "二进制对数", "log1p": "加一取对数", "expm1": "减一取指数", "exp2": "二的指数", "square": "平方", "signbit": "判断负数", "trunc": "截断小数", "maximum": "逐个取较大值", "minimum": "逐个取较小值", "remainder": "取余数", "fmod": "浮点取余", "hypot": "直角距离", "clamp": "限制范围", "sign": "取符号", "floor": "向下取整", "ceil": "向上取整", "round": "四舍五入", "frac": "取小数", "reciprocal": "取倒数", "rsqrt": "倒数平方根", "sin": "正弦", "cos": "余弦", "tan": "正切", "atan": "反正切", "sinh": "双曲正弦", "cosh": "双曲余弦", "erf": "误差函数", "amax": "最大值", "amin": "最小值", "prod": "乘积", "var": "方差", "std": "标准差", "argmax": "最大值位置", "greater": "大于", "greater_equal": "大于等于", "less": "小于", "less_equal": "小于等于", "equal": "相等", "zeros_like": "同形全零", "ones_like": "同形全一", "rand_like": "同形随机", "input": "输入", "output": "输出", "debug": "调试",
+}
+
+categoriesOrder = ["base", "transform", "activation", "loss", "normalization", "shape", "math"]
 
 
 def clearAll():  # 清空注册表，热重载时调用
@@ -51,7 +65,7 @@ def registerNode(opcode, label, ports, params, description, cls):
         raise ValueError(f"节点冲突: {opcode} 已由 {existingOwner} 注册")  # 冲突必须显式失败而不是替换实现
     if not currentCategoryId or currentCategoryId not in categories:
         raise ValueError(f"节点 {opcode} 注册前必须先声明分类")  # 隐式使用最后分类需要先有明确分类
-    nodes[opcode] = {"opcode": opcode, "label": friendlyLabels.get(opcode, label), "ports": ports, "params": params, "description": description, "cls": cls}
+    nodes[opcode] = {"opcode": opcode, "label": chineseLabels.get(opcode, label), "ports": ports, "params": params, "description": description, "cls": cls}
     categories[currentCategoryId]["nodes"].append(opcode)  # 节点归入当前分类上下文，不依赖字典顺序
     nodeOwners[opcode] = registrationOwner  # 节点创建成功后记录当前导入所有者
 
@@ -136,10 +150,27 @@ def validateParams(opcode, params):
     return validated  # 返回扁平参数字典
 
 
+def resolveNodeAlias(opcode, params):
+    if opcode not in nodeAliases:
+        return opcode, params  # 当前操作码直接使用原定义
+    targetOpcode, aliasParams = nodeAliases[opcode]  # 读取统一目标和固定模式
+    resolvedParams = dict(params or {})  # 复制旧参数避免修改蓝图数据
+    factorFrom = aliasParams.get("factorFrom")  # 像素重排旧节点的倍数参数名不同
+    if factorFrom:
+        resolvedParams["factor"] = resolvedParams.get(factorFrom, 2)  # 迁移旧倍数参数
+    resolvedParams.update({key: value for key, value in aliasParams.items() if key != "factorFrom"})  # 写入固定模式
+    return targetOpcode, resolvedParams  # 返回统一节点和迁移参数
+
+
+def hasNode(opcode):
+    return opcode in nodes or opcode in nodeAliases  # 新节点和旧蓝图别名都可执行
+
+
 def createNode(opcode, nodeId, params):
     """根据opcode创建节点实例，创建前校验参数"""
-    if opcode not in nodes:
+    if not hasNode(opcode):
         raise ValueError(f"未知节点: {opcode}")
+    opcode, params = resolveNodeAlias(opcode, params)  # 旧蓝图先迁移到统一节点
     params = validateParams(opcode, params)  # 校验并修正参数值
     cls = nodes[opcode]["cls"]
     return cls(nodeId, params)

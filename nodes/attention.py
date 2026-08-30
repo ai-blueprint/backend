@@ -13,8 +13,8 @@ from registry import category, node, BaseNode  # 从registry导入装饰器和�
 # ==================== 分类定义 ====================
 
 category(  # 注册注意力分类
-    id="attention",  # 分类唯一标识
-    label="注意力",  # 分类显示名称
+    id="transform",  # 分类唯一标识
+    label="变换",  # 注意力属于变换节点
     color="#9d4edd",  # 分类颜色，紫色
     icon="",  # 分类图标
 )

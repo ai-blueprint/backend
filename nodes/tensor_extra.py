@@ -24,22 +24,11 @@ class SignNode(BaseNode):  # 继承BaseNode
         return {"out": torch.sign(input.get("x"))}  # 使用原生sign取元素符号
 
 
-@node(opcode="floor", label="向下取整", ports={"input": {"x": "输入"}, "output": {"out": "输出"}}, description="每个元素向负无穷取整")
-class FloorNode(BaseNode):  # 继承BaseNode
+@node(opcode="rounding", label="取整", ports={"input": {"x": "输入"}, "output": {"out": "输出"}}, params={"mode": {"label": "模式", "type": "enum", "value": "round", "options": {"round": "四舍五入", "floor": "向下取整", "ceil": "向上取整", "trunc": "直接去掉小数"}}}, description="把小数变成整数，可在属性中选择四舍五入、向下、向上或直接截断")
+class RoundingNode(BaseNode):  # 继承BaseNode
     def compute(self, input):  # 计算方法
-        return {"out": torch.floor(input.get("x"))}  # 使用原生floor逐元素取整
-
-
-@node(opcode="ceil", label="向上取整", ports={"input": {"x": "输入"}, "output": {"out": "输出"}}, description="每个元素向正无穷取整")
-class CeilNode(BaseNode):  # 继承BaseNode
-    def compute(self, input):  # 计算方法
-        return {"out": torch.ceil(input.get("x"))}  # 使用原生ceil逐元素取整
-
-
-@node(opcode="round", label="四舍五入", ports={"input": {"x": "输入"}, "output": {"out": "输出"}}, description="每个元素四舍五入到最近整数")
-class RoundNode(BaseNode):  # 继承BaseNode
-    def compute(self, input):  # 计算方法
-        return {"out": torch.round(input.get("x"))}  # 使用原生round逐元素取整
+        functionMap = {"round": torch.round, "floor": torch.floor, "ceil": torch.ceil, "trunc": torch.trunc}  # 模式统一映射到PyTorch取整函数
+        return {"out": functionMap[self.params.get("mode", "round")](input.get("x"))}  # 执行选中的取整方式
 
 
 @node(opcode="frac", label="取小数", ports={"input": {"x": "输入"}, "output": {"out": "小数"}}, description="保留每个元素的小数部分")
@@ -138,46 +127,11 @@ class ChunkNode(BaseNode):  # 继承BaseNode
 category(id="transform", label="变换", color="#82cbfa", icon="")  # 序列累计操作归入原有变换分类
 
 
-@node(opcode="scan", label="序列扫描", ports={"input": {"x": "序列"}, "output": {"out": "扫描结果"}}, params={"dim": {"label": "扫描维度", "type": "int", "value": 1, "range": [-10, 10]}}, description="沿序列累计求和，每个位置都保留到当前位置的累计结果")
-class ScanNode(BaseNode):  # 继承BaseNode
-    def compute(self, input):  # 计算方法
-        return {"out": torch.cumsum(input.get("x"), dim=self.params.get("dim", 1))}  # 使用原生cumsum实现通用序列扫描
-
-
-@node(opcode="fold", label="序列折叠", ports={"input": {"x": "序列"}, "output": {"out": "折叠结果"}}, params={"dim": {"label": "折叠维度", "type": "int", "value": 1, "range": [-10, 10]}}, description="沿序列累计求积，把序列折叠成一个最终结果")
-class FoldNode(BaseNode):  # 继承BaseNode
-    def compute(self, input):  # 计算方法
-        return {"out": torch.cumprod(input.get("x"), dim=self.params.get("dim", 1))}  # 使用原生cumprod实现通用序列折叠
-
-
-@node(opcode="cumulative_max", label="累计最大值", ports={"input": {"x": "序列"}, "output": {"out": "最大值"}}, params={"dim": {"label": "累计维度", "type": "int", "value": 1, "range": [-10, 10]}}, description="沿序列保留截至当前位置的最大值")
-class CumulativeMaxNode(BaseNode):  # 继承BaseNode
-    def compute(self, input):  # 计算方法
-        return {"out": torch.cummax(input.get("x"), dim=self.params.get("dim", 1)).values}  # 使用原生cummax只输出累计最大值
-
-
-@node(opcode="cumulative_min", label="累计最小值", ports={"input": {"x": "序列"}, "output": {"out": "最小值"}}, params={"dim": {"label": "累计维度", "type": "int", "value": 1, "range": [-10, 10]}}, description="沿序列保留截至当前位置的最小值")
-class CumulativeMinNode(BaseNode):  # 继承BaseNode
-    def compute(self, input):  # 计算方法
-        return {"out": torch.cummin(input.get("x"), dim=self.params.get("dim", 1)).values}  # 使用原生cummin只输出累计最小值
-
-
 category(id="base", label="基础", color="#8B92E5", icon="")  # 张量创建操作归入原有基础分类
 
 
-@node(opcode="zeros_like", label="同形全零", ports={"input": {"x": "参考张量"}, "output": {"out": "全零张量"}}, description="创建一个与输入形状和类型相同的全零张量")
-class ZerosLikeNode(BaseNode):  # 继承BaseNode
+@node(opcode="tensor_like", label="同形创建", ports={"input": {"x": "参考张量"}, "output": {"out": "新张量"}}, params={"mode": {"label": "内容", "type": "enum", "value": "zeros", "options": {"zeros": "全部为零", "ones": "全部为一", "random": "随机数"}}}, description="创建与输入形状和类型相同的新张量，可在属性中选择全零、全一或随机")
+class TensorLikeNode(BaseNode):  # 继承BaseNode
     def compute(self, input):  # 计算方法
-        return {"out": torch.zeros_like(input.get("x"))}  # 使用原生zeros_like创建张量
-
-
-@node(opcode="ones_like", label="同形全一", ports={"input": {"x": "参考张量"}, "output": {"out": "全一张量"}}, description="创建一个与输入形状和类型相同的全一张量")
-class OnesLikeNode(BaseNode):  # 继承BaseNode
-    def compute(self, input):  # 计算方法
-        return {"out": torch.ones_like(input.get("x"))}  # 使用原生ones_like创建张量
-
-
-@node(opcode="rand_like", label="同形随机", ports={"input": {"x": "参考张量"}, "output": {"out": "随机张量"}}, description="创建一个与输入形状和类型相同的随机张量")
-class RandLikeNode(BaseNode):  # 继承BaseNode
-    def compute(self, input):  # 计算方法
-        return {"out": torch.rand_like(input.get("x"))}  # 使用原生rand_like创建张量
+        functionMap = {"zeros": torch.zeros_like, "ones": torch.ones_like, "random": torch.rand_like}  # 内容模式统一映射到PyTorch创建函数
+        return {"out": functionMap[self.params.get("mode", "zeros")](input.get("x"))}  # 创建同形张量

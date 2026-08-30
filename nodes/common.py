@@ -57,12 +57,13 @@ class PoolingNode(BaseNode):
     opcode="dropout",
     label="随机失活",
     ports={"input": {"x": "输入"}, "output": {"out": "输出"}},
-    params={"p": {"label": "失活率", "type": "float", "value": 0.1, "range": [0, 1]}},
-    description="训练时随机将部分元素置零，推理时保持原值",
+    params={"mode": {"label": "模式", "type": "enum", "value": "element", "options": {"element": "按元素丢弃", "channel1d": "按一维通道丢弃", "channel2d": "按二维通道丢弃", "channel3d": "按三维通道丢弃", "alpha": "Alpha丢弃", "feature_alpha": "按特征Alpha丢弃"}}, "p": {"label": "失活率", "type": "float", "value": 0.1, "range": [0, 1]}},
+    description="训练时随机隐藏部分数据，可在属性中选择按元素、通道或Alpha模式；推理时保持原值",
 )
 class DropoutNode(BaseNode):
     def build(self):
-        self.dropout = nn.Dropout(self.params.get("p", 0.1))  # 模型 train/eval 状态自动控制随机行为
+        layerMap = {"element": nn.Dropout, "channel1d": nn.Dropout1d, "channel2d": nn.Dropout2d, "channel3d": nn.Dropout3d, "alpha": nn.AlphaDropout, "feature_alpha": nn.FeatureAlphaDropout}  # 模式统一映射到PyTorch原生失活层
+        self.dropout = layerMap[self.params.get("mode", "element")](self.params.get("p", 0.1))  # 模型train/eval状态自动控制随机行为
 
     def compute(self, input):
         return {"out": self.dropout(input.get("x"))}  # 透传形状并应用当前模型模式
@@ -92,86 +93,3 @@ class EmbeddingNode(BaseNode):
         if torch.is_floating_point(indices):
             indices = ((indices.clamp(-1, 1) + 1) * (self.embedding.num_embeddings - 1) / 2).round().long()  # 均匀覆盖完整词表，避免直接取整退化到少数索引
         return {"out": self.embedding(indices)}  # 整数输入不改值，保持标准Embedding索引语义
-
-
-class RecurrentNode(BaseNode):
-    recurrentClass = nn.RNN  # 子类覆盖具体循环结构，公共路由保持一致
-
-    def build(self):
-        self.recurrent = self.recurrentClass(input_size=self.params.get("input_size", 8), hidden_size=self.params.get("hidden_size", 8), num_layers=self.params.get("num_layers", 1), bias=self.params.get("bias", True), batch_first=True, dropout=self.params.get("dropout", 0.0) if self.params.get("num_layers", 1) > 1 else 0.0, bidirectional=self.params.get("bidirectional", False))  # 所有循环节点统一 batch_first
-
-    def compute(self, input):
-        state = input.get("state")  # 可选状态支持连续序列分段执行
-        output, finalState = self.recurrent(input.get("x"), state) if state is not None else self.recurrent(input.get("x"))  # 无状态时让 PyTorch 自动创建零状态
-        if isinstance(finalState, tuple):
-            return {"out": output, "hidden": finalState[0], "cell": finalState[1]}  # LSTM 分别暴露隐藏状态和记忆状态
-        return {"out": output, "hidden": finalState}  # RNN 和 GRU 只返回隐藏状态
-
-
-recurrentParams = {
-    "input_size": {"label": "输入维度", "type": "int", "value": 8, "range": [1, 65536]},
-    "hidden_size": {"label": "隐藏维度", "type": "int", "value": 8, "range": [1, 65536]},
-    "num_layers": {"label": "层数", "type": "int", "value": 1, "range": [1, 128]},
-    "bias": {"label": "偏置", "type": "bool", "value": True},
-    "dropout": {"label": "层间失活率", "type": "float", "value": 0.0, "range": [0, 1]},
-    "bidirectional": {"label": "双向", "type": "bool", "value": False},
-}  # 三类循环节点共享同一组稳定参数
-
-
-@node(opcode="rnn", label="RNN", ports={"input": {"x": "输入", "state": "初始状态"}, "output": {"out": "序列", "hidden": "隐藏状态"}}, params=recurrentParams, description="批优先的基础循环神经网络")
-class RNNNode(RecurrentNode):
-    recurrentClass = nn.RNN  # 使用基础 tanh RNN 实现公共循环协议
-
-
-@node(opcode="lstm", label="LSTM", ports={"input": {"x": "输入", "hidden": "初始隐藏状态", "cell": "初始记忆状态"}, "output": {"out": "序列", "hidden": "隐藏状态", "cell": "记忆状态"}}, params=recurrentParams, description="批优先的长短期记忆网络")
-class LSTMNode(RecurrentNode):
-    recurrentClass = nn.LSTM  # LSTM 额外返回记忆状态端口
-
-    def compute(self, input):
-        hidden = input.get("hidden")  # 隐藏状态和记忆状态分别对应清晰的输入端口
-        cell = input.get("cell")  # 两个状态必须成对传入，缺省时统一使用零状态
-        if (hidden is None) != (cell is None):
-            raise ValueError("LSTM的hidden和cell必须同时提供")  # 拒绝无法组成合法LSTM状态的半组输入
-        output, (finalHidden, finalCell) = self.recurrent(input.get("x"), (hidden, cell)) if hidden is not None else self.recurrent(input.get("x"))  # 显式追踪两类状态的流向
-        return {"out": output, "hidden": finalHidden, "cell": finalCell}  # 输出端口与下一次执行的输入端口一一对应
-
-
-@node(opcode="gru", label="GRU", ports={"input": {"x": "输入", "state": "初始状态"}, "output": {"out": "序列", "hidden": "隐藏状态"}}, params=recurrentParams, description="批优先的门控循环单元")
-class GRUNode(RecurrentNode):
-    recurrentClass = nn.GRU  # GRU 使用单隐藏状态公共协议
-
-
-transformerParams = {
-    "d_model": {"label": "特征维度", "type": "int", "value": 8, "range": [1, 65536]},
-    "nhead": {"label": "注意力头数", "type": "int", "value": 2, "range": [1, 256]},
-    "dim_feedforward": {"label": "前馈维度", "type": "int", "value": 8, "range": [1, 262144]},
-    "dropout": {"label": "失活率", "type": "float", "value": 0.1, "range": [0, 1]},
-    "activation": {"label": "激活函数", "type": "enum", "value": "relu", "options": {"relu": "ReLU", "gelu": "GELU"}},
-    "norm_first": {"label": "先归一化", "type": "bool", "value": False},
-}  # 编码器和解码器层共享标准 Transformer 参数
-
-
-@node(opcode="transformer_encoder_layer", label="Transformer编码层", ports={"input": {"x": "输入"}, "output": {"out": "输出"}}, params=transformerParams, description="批优先的标准 Transformer 编码器层")
-class TransformerEncoderLayerNode(BaseNode):
-    def build(self):
-        dModel = self.params.get("d_model", 8)  # 特征维度必须能平均分配到每个注意力头
-        numHeads = self.params.get("nhead", 2)  # 读取头数并在创建底层层前给出明确校验
-        if numHeads <= 0 or dModel % numHeads != 0:
-            raise ValueError("d_model必须能被nhead整除")  # 将PyTorch内部断言转换为节点可理解的参数错误
-        self.layer = nn.TransformerEncoderLayer(d_model=dModel, nhead=numHeads, dim_feedforward=self.params.get("dim_feedforward", 8), dropout=self.params.get("dropout", 0.1), activation=self.params.get("activation", "relu"), batch_first=True, norm_first=self.params.get("norm_first", False))  # 创建可独立堆叠的编码器层
-
-    def compute(self, input):
-        return {"out": self.layer(input.get("x"))}  # 编码层保持批和序列维度
-
-
-@node(opcode="transformer_decoder_layer", label="Transformer解码层", ports={"input": {"x": "目标序列", "memory": "编码记忆"}, "output": {"out": "输出"}}, params=transformerParams, description="批优先的标准 Transformer 解码器层")
-class TransformerDecoderLayerNode(BaseNode):
-    def build(self):
-        dModel = self.params.get("d_model", 8)  # 解码器同样按头均分目标序列特征
-        numHeads = self.params.get("nhead", 2)  # 读取头数并保持编码器、解码器校验一致
-        if numHeads <= 0 or dModel % numHeads != 0:
-            raise ValueError("d_model必须能被nhead整除")  # 非整除配置无法形成等宽注意力头
-        self.layer = nn.TransformerDecoderLayer(d_model=dModel, nhead=numHeads, dim_feedforward=self.params.get("dim_feedforward", 8), dropout=self.params.get("dropout", 0.1), activation=self.params.get("activation", "relu"), batch_first=True, norm_first=self.params.get("norm_first", False))  # 创建可独立堆叠的解码器层
-
-    def compute(self, input):
-        return {"out": self.layer(input.get("x"), input.get("memory"))}  # 目标序列通过交叉注意力读取编码记忆

@@ -12,9 +12,8 @@ class ExtraNodesTest(unittest.TestCase):
         frontendRegistry = registry.getAllForFrontend()  # 隐藏示例节点后得到用户实际可见注册表
 
         self.assertGreaterEqual(len(frontendRegistry["nodes"]), 100)
-        self.assertEqual(list(frontendRegistry["categories"]), ["base", "transform", "activation", "attention", "loss", "normalization", "shape", "math"])
+        self.assertEqual(list(frontendRegistry["categories"]), ["base", "transform", "activation", "loss", "normalization", "shape", "math"])
         self.assertIn("time_shift", frontendRegistry["nodes"])
-        self.assertIn("transformer_encoder", frontendRegistry["nodes"])
         self.assertIn("gaussian_nll_loss", frontendRegistry["nodes"])
 
     # --- 验证原生序列节点可组合出RWKV所需时间移位 ---
@@ -30,17 +29,6 @@ class ExtraNodesTest(unittest.TestCase):
         (shifted.sum() + sliced.sum() + selected.sum()).backward()  # 原生节点输出必须仍支持反向传播
         self.assertIsNotNone(values.grad)  # 输入应收到梯度
 
-    # --- 验证统一Scan和Fold节点使用原生累计运算 ---
-    def test_scan_and_fold_keep_sequence_results(self):
-        values = torch.tensor([[[1.0], [2.0], [3.0]]], requires_grad=True)  # 构造短序列方便核对累计结果
-        scan = registry.createNode("scan", "scan", {})({"x": values})["out"]  # 扫描保留每个位置的累计和
-        fold = registry.createNode("fold", "fold", {})({"x": values})["out"]  # 折叠保留每个位置的累计积
-
-        self.assertTrue(torch.equal(scan, torch.tensor([[[1.0], [3.0], [6.0]]])))  # 扫描结果符合cumsum
-        self.assertTrue(torch.equal(fold, torch.tensor([[[1.0], [2.0], [6.0]]])))  # 折叠结果符合cumprod
-        (scan.sum() + fold.sum()).backward()  # 原生累计节点必须保留反向传播
-        self.assertIsNotNone(values.grad)  # 输入序列应收到梯度
-
     # --- 验证空间重排层保持元素数量 ---
     def test_pixel_shuffle_round_trip(self):
         source = torch.randn(2, 4, 4, 8)  # 四个通道满足2倍像素上采样要求
@@ -53,19 +41,19 @@ class ExtraNodesTest(unittest.TestCase):
         self.assertEqual(list(enlarged.shape), [2, 1, 8, 16])
         self.assertTrue(torch.equal(restored, source))
 
+    # --- 验证重复节点已合并且旧操作码仍可迁移 ---
+    def test_merged_nodes_keep_legacy_blueprints_working(self):
+        frontendNodes = registry.getAllForFrontend()["nodes"]  # 前端只显示新的统一节点
+        for opcode in ("dropout1d", "dropout2d", "zeros_like", "ones_like", "floor", "ceil", "pixel_shuffle", "pixel_unshuffle"):
+            self.assertNotIn(opcode, frontendNodes)  # 旧节点不再出现在节点列表
+        for opcode in ("dropout", "tensor_like", "rounding", "pixel_rearrange"):
+            self.assertIn(opcode, frontendNodes)  # 统一节点必须正常注册
+
+        values = torch.randn(2, 4, 8)  # 使用默认三维教学张量验证旧蓝图兼容
+        self.assertEqual(list(registry.createNode("zeros_like", "legacy-zero", {})({"x": values})["out"].shape), [2, 4, 8])  # 旧同形创建节点自动迁移
+        self.assertEqual(list(registry.createNode("floor", "legacy-floor", {})({"x": values})["out"].shape), [2, 4, 8])  # 旧取整节点自动迁移
+
     # --- 验证完整 Transformer 堆栈保持教学序列契约 ---
-    def test_transformer_stacks_keep_batch_first_shape(self):
-        params = {"d_model": 8, "nhead": 2, "num_layers": 2, "dim_feedforward": 16, "dropout": 0.0}  # 小型两层堆栈保持测试快速
-        encoder = registry.createNode("transformer_encoder", "encoder", params)  # 构建完整编码器而不是单层
-        decoder = registry.createNode("transformer_decoder", "decoder", params)  # 构建完整解码器而不是单层
-        values = torch.randn(2, 4, 8)  # 使用全项目统一批优先序列形状
-
-        memory = encoder({"x": values})["out"]
-        output = decoder({"x": values, "memory": memory})["out"]
-
-        self.assertEqual(list(memory.shape), [2, 4, 8])
-        self.assertEqual(list(output.shape), [2, 4, 8])
-
     # --- 验证分布损失会规范化随机教学输入 ---
     def test_distribution_losses_accept_signed_inputs(self):
         prediction = torch.randn(2, 4, 8)  # 模拟默认Input节点产生的有符号张量

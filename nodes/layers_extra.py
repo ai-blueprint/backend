@@ -68,28 +68,17 @@ class ChannelShuffleNode(BaseNode):
         return {"out": self.layer(input.get("x"))}  # 只重排通道，不改变形状和值
 
 
-@node(opcode="pixel_shuffle", label="像素上采样", ports={"input": {"x": "输入"}, "output": {"out": "输出"}}, params={"upscale_factor": {"label": "放大倍数", "type": "int", "value": 2, "range": [1, 64]}}, description="把通道信息重排为空间分辨率")
-class PixelShuffleNode(BaseNode):
+@node(opcode="pixel_rearrange", label="像素重排", ports={"input": {"x": "输入"}, "output": {"out": "输出"}}, params={"mode": {"label": "模式", "type": "enum", "value": "up", "options": {"up": "通道变空间", "down": "空间变通道"}}, "factor": {"label": "倍数", "type": "int", "value": 2, "range": [1, 64]}}, description="重新排列通道和空间位置，可在属性中选择上采样或下采样")
+class PixelRearrangeNode(BaseNode):
     def build(self):
-        self.layer = nn.PixelShuffle(self.params.get("upscale_factor", 2))  # 默认把4个通道重排为2倍空间尺寸
+        layerClass = nn.PixelShuffle if self.params.get("mode", "up") == "up" else nn.PixelUnshuffle  # 模式决定通道与空间的重排方向
+        self.layer = layerClass(self.params.get("factor", 2))  # 两种方向共用同一个倍数参数
 
     def compute(self, input):
         values = input.get("x")  # 读取图像张量或统一三维教学输入
         if values.ndim == 3:
-            values = values.unsqueeze(-2)  # 将[批,通道,长度]解释为高度为1的图像
-        return {"out": self.layer(values)}  # 标准四维输入严格保持PyTorch像素重排语义
-
-
-@node(opcode="pixel_unshuffle", label="像素下采样", ports={"input": {"x": "输入"}, "output": {"out": "输出"}}, params={"downscale_factor": {"label": "缩小倍数", "type": "int", "value": 2, "range": [1, 64]}}, description="把空间邻域重排到通道维")
-class PixelUnshuffleNode(BaseNode):
-    def build(self):
-        self.layer = nn.PixelUnshuffle(self.params.get("downscale_factor", 2))  # 默认把空间尺寸缩小2倍并扩充通道
-
-    def compute(self, input):
-        values = input.get("x")  # 读取图像张量或统一三维教学输入
-        if values.ndim == 3:
-            values = values.unsqueeze(1)  # 将[批,高,宽]解释为单通道图像，默认空间尺寸可整除
-        return {"out": self.layer(values)}  # 重排元素而不进行数值计算
+            values = values.unsqueeze(-2) if self.params.get("mode", "up") == "up" else values.unsqueeze(1)  # 按重排方向补齐四维图像格式
+        return {"out": self.layer(values)}  # 重排元素，不进行数值计算
 
 
 @node(opcode="reflection_pad1d", label="反射填充1D", ports={"input": {"x": "输入"}, "output": {"out": "输出"}}, params={"padding": {"label": "左右填充", "type": "list", "value": [1, 1]}}, description="用边缘内部的镜像值填充一维信号")
@@ -110,40 +99,6 @@ class LocalResponseNormNode(BaseNode):
         return {"out": self.layer(input.get("x"))}  # 保持输入形状
 
 
-class DropoutVariantNode(BaseNode):
-    layerClass = nn.Identity  # 子类覆盖具体失活层
-
-    def build(self):
-        self.layer = self.layerClass(p=self.params.get("p", 0.1))  # 模型 eval 时所有失活层自动透传
-
-    def compute(self, input):
-        return {"out": self.layer(input.get("x"))}  # 训练状态下按组件规则置零或替换
-
-
-dropoutParams = {"p": {"label": "失活率", "type": "float", "value": 0.1, "range": [0, 1]}}  # 多种正则化层共享同一参数
-
-
-@node(opcode="dropout1d", label="通道随机失活", ports={"input": {"x": "输入"}, "output": {"out": "输出"}}, params=dropoutParams, description="按一维特征通道整体随机置零")
-class Dropout1dNode(DropoutVariantNode):
-    layerClass = nn.Dropout1d  # 对三维输入按通道失活
-
-
-@node(opcode="alpha_dropout", label="Alpha随机失活", ports={"input": {"x": "输入"}, "output": {"out": "输出"}}, params=dropoutParams, description="为SELU网络保持均值和方差的随机失活")
-class AlphaDropoutNode(DropoutVariantNode):
-    layerClass = nn.AlphaDropout  # 与 SELU 自归一化性质配套
-
-
-@node(opcode="feature_alpha_dropout", label="特征Alpha失活", ports={"input": {"x": "输入"}, "output": {"out": "输出"}}, params=dropoutParams, description="按特征通道执行Alpha随机失活")
-class FeatureAlphaDropoutNode(DropoutVariantNode):
-    layerClass = nn.FeatureAlphaDropout  # 整个特征图共享失活掩码
-
-
-@node(opcode="identity", label="恒等层", ports={"input": {"x": "输入"}, "output": {"out": "输出"}}, description="原样转发输入，用于占位和搭建分支")
-class IdentityNode(BaseNode):
-    def compute(self, input):
-        return {"out": input.get("x")}  # 不复制也不改变输入张量
-
-
 @node(opcode="cosine_similarity", label="余弦相似度", ports={"input": {"x": "输入1", "y": "输入2"}, "output": {"out": "相似度"}}, params={"dim": {"label": "比较维度", "type": "int", "value": -1, "range": [-10, 10]}, "eps": {"label": "防零极小值", "type": "float", "value": 0.00000001, "range": [1e-12, 1]}}, description="比较两个向量方向，相似度位于-1到1")
 class CosineSimilarityNode(BaseNode):
     def build(self):
@@ -160,36 +115,3 @@ class PairwiseDistanceNode(BaseNode):
 
     def compute(self, input):
         return {"out": self.layer(input.get("x"), input.get("y"))}  # 前置批量维保持不变
-
-
-transformerStackParams = {"d_model": {"label": "特征维度", "type": "int", "value": 8, "range": [1, 65536]}, "nhead": {"label": "注意力头数", "type": "int", "value": 2, "range": [1, 256]}, "num_layers": {"label": "堆叠层数", "type": "int", "value": 2, "range": [1, 64]}, "dim_feedforward": {"label": "前馈维度", "type": "int", "value": 16, "range": [1, 262144]}, "dropout": {"label": "失活率", "type": "float", "value": 0.1, "range": [0, 1]}, "activation": {"label": "激活函数", "type": "enum", "value": "relu", "options": {"relu": "ReLU", "gelu": "GELU"}}, "norm_first": {"label": "先归一化", "type": "bool", "value": False}}  # 编码器和解码器堆栈共享结构参数
-
-
-def validateTransformerWidth(params):
-    featureWidth = params.get("d_model", 8)  # 特征宽度决定每个注意力头的总输入
-    numHeads = params.get("nhead", 2)  # 头数决定特征拆分数量
-    if numHeads <= 0 or featureWidth % numHeads != 0:
-        raise ValueError("d_model必须能被nhead整除")  # 等宽注意力头要求整除
-    return featureWidth, numHeads  # 返回已校验结构参数供层构建
-
-
-@node(opcode="transformer_encoder", label="Transformer编码器", ports={"input": {"x": "输入"}, "output": {"out": "输出"}}, params=transformerStackParams, description="堆叠多个标准Transformer编码层")
-class TransformerEncoderNode(BaseNode):
-    def build(self):
-        featureWidth, numHeads = validateTransformerWidth(self.params)  # 在创建堆栈前检查头宽关系
-        encoderLayer = nn.TransformerEncoderLayer(d_model=featureWidth, nhead=numHeads, dim_feedforward=self.params.get("dim_feedforward", 16), dropout=self.params.get("dropout", 0.1), activation=self.params.get("activation", "relu"), batch_first=True, norm_first=self.params.get("norm_first", False))  # 创建堆栈模板层
-        self.layer = nn.TransformerEncoder(encoderLayer, num_layers=self.params.get("num_layers", 2))  # PyTorch 复制模板形成独立层参数
-
-    def compute(self, input):
-        return {"out": self.layer(input.get("x"))}  # 保持[批,序列,特征]契约
-
-
-@node(opcode="transformer_decoder", label="Transformer解码器", ports={"input": {"x": "目标序列", "memory": "编码记忆"}, "output": {"out": "输出"}}, params=transformerStackParams, description="堆叠多个标准Transformer解码层")
-class TransformerDecoderNode(BaseNode):
-    def build(self):
-        featureWidth, numHeads = validateTransformerWidth(self.params)  # 在创建堆栈前检查头宽关系
-        decoderLayer = nn.TransformerDecoderLayer(d_model=featureWidth, nhead=numHeads, dim_feedforward=self.params.get("dim_feedforward", 16), dropout=self.params.get("dropout", 0.1), activation=self.params.get("activation", "relu"), batch_first=True, norm_first=self.params.get("norm_first", False))  # 创建堆栈模板层
-        self.layer = nn.TransformerDecoder(decoderLayer, num_layers=self.params.get("num_layers", 2))  # 复制模板形成完整解码器
-
-    def compute(self, input):
-        return {"out": self.layer(input.get("x"), input.get("memory"))}  # 目标序列通过交叉注意力读取编码记忆
