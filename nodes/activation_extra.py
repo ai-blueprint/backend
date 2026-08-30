@@ -10,7 +10,7 @@ import torch.nn as nn  # PyTorch 激活层能力，用于构建与官方语义�
 from registry import BaseNode, category, node  # 节点注册能力，将扩展激活暴露给编辑器
 
 
-category(id="activation_extra", label="更多激活", color="#8f67df", icon="")  # 扩展激活独立分组，避免基础列表过长
+category(id="activation", label="激活", color="#8f67df", icon="")  # 所有激活节点统一归入激活分类
 
 
 class SingleInputLayerNode(BaseNode):

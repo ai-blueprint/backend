@@ -11,7 +11,7 @@ import torch.nn as nn  # PyTorch 损失函数能力，用于构建官方实现
 from registry import BaseNode, category, node  # 节点注册能力，将扩展损失暴露给编辑器
 
 
-category(id="loss_extra", label="更多损失", color="#d85a73", icon="")  # 扩展损失独立分组，便于教学查找
+category(id="loss", label="损失函数", color="#e44d60", icon="")  # 所有损失节点统一归入损失函数分类
 
 
 reductionParams = {"reduction": {"label": "聚合方式", "type": "enum", "value": "mean", "options": {"mean": "平均值", "sum": "总和", "none": "无聚合"}}}  # 大多数损失共享聚合参数

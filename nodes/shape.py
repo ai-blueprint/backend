@@ -344,6 +344,96 @@ class PadNode(BaseNode):  # 继承BaseNode
         return {"out": out}  # 返回输出
 
 
+@node(  # 注册序列切片节点
+    opcode="slice",  # 节点操作码
+    label="序列切片",  # 节点显示名称
+    ports={"input": {"x": "输入"}, "output": {"out": "切片"}},  # 输入和输出端口
+    params={"dim": {"label": "切片维度", "type": "int", "value": 1, "range": [-10, 10]}, "start": {"label": "开始位置", "type": "int", "value": 0, "range": [-65536, 65536]}, "end": {"label": "结束位置", "type": "int", "value": -1, "range": [-65536, 65536]}, "step": {"label": "步长", "type": "int", "value": 1, "range": [1, 65536]}},  # 序列切片参数
+    description="沿指定维度截取一段序列",  # 节点描述
+)
+class SliceNode(BaseNode):  # 继承BaseNode
+    def compute(self, input):  # 计算方法
+        x = input.get("x")  # 获取输入张量
+        dim = self.params.get("dim", 1)  # 获取切片维度
+        start = self.params.get("start", 0)  # 获取开始位置
+        end = self.params.get("end", -1)  # 获取结束位置
+        step = self.params.get("step", 1)  # 获取切片步长
+        if step != 1: raise ValueError("序列切片当前只支持步长1")  # Tensor.narrow不支持跳步，先保证语义清楚
+        size = x.shape[dim] - start if end == -1 else end - start  # 计算切片长度
+        return {"out": x.narrow(dim, start, size)}  # 使用原生narrow保持梯度可追踪
+
+
+@node(  # 注册位置选择节点
+    opcode="select",  # 节点操作码
+    label="选择位置",  # 节点显示名称
+    ports={"input": {"x": "输入"}, "output": {"out": "位置"}},  # 输入和输出端口
+    params={"dim": {"label": "选择维度", "type": "int", "value": 1, "range": [-10, 10]}, "index": {"label": "位置索引", "type": "int", "value": -1, "range": [-65536, 65536]}},  # 位置选择参数
+    description="从序列指定维度选择一个位置",  # 节点描述
+)
+class SelectNode(BaseNode):  # 继承BaseNode
+    def compute(self, input):  # 计算方法
+        return {"out": input.get("x").select(self.params.get("dim", 1), self.params.get("index", -1))}  # 使用原生select保持梯度可追踪
+
+
+@node(  # 注册拼接节点
+    opcode="cat",  # 节点操作码
+    label="拼接",  # 节点显示名称
+    ports={"input": {"x": "张量1", "y": "张量2"}, "output": {"out": "拼接结果"}},  # 两个张量输入
+    params={"dim": {"label": "拼接维度", "type": "int", "value": 1, "range": [-10, 10]}},  # 拼接参数
+    description="沿指定维度连接两个张量",  # 节点描述
+)
+class CatNode(BaseNode):  # 继承BaseNode
+    def compute(self, input):  # 计算方法
+        return {"out": torch.cat((input.get("x"), input.get("y")), dim=self.params.get("dim", 1))}  # 使用原生cat保持梯度可追踪
+
+
+@node(  # 注册堆叠节点
+    opcode="stack",  # 节点操作码
+    label="堆叠",  # 节点显示名称
+    ports={"input": {"x": "张量1", "y": "张量2"}, "output": {"out": "堆叠结果"}},  # 两个张量输入
+    params={"dim": {"label": "插入维度", "type": "int", "value": 1, "range": [-10, 10]}},  # 堆叠参数
+    description="沿新维度组合两个同形张量",  # 节点描述
+)
+class StackNode(BaseNode):  # 继承BaseNode
+    def compute(self, input):  # 计算方法
+        return {"out": torch.stack((input.get("x"), input.get("y")), dim=self.params.get("dim", 1))}  # 使用原生stack保持梯度可追踪
+
+
+@node(  # 注册扩展节点
+    opcode="expand",  # 节点操作码
+    label="扩展尺寸",  # 节点显示名称
+    ports={"input": {"x": "输入"}, "output": {"out": "扩展结果"}},  # 输入和输出端口
+    params={"sizes": {"label": "目标尺寸", "type": "list", "value": [-1]}},  # 目标尺寸参数
+    description="按广播规则扩展张量尺寸，-1表示保留原尺寸",  # 节点描述
+)
+class ExpandNode(BaseNode):  # 继承BaseNode
+    def compute(self, input):  # 计算方法
+        x = input.get("x")  # 获取输入张量
+        sizes = list(self.params.get("sizes", [-1]))  # 复制尺寸列表避免修改参数
+        if len(sizes) < x.ndim: sizes = list(x.shape[: x.ndim - len(sizes)]) + sizes  # 尺寸较短时沿用前面的原始维度
+        sizes = [x.shape[index] if size == -1 else size for index, size in enumerate(sizes)]  # 把-1替换为对应原尺寸
+        return {"out": x.expand(*sizes)}  # 使用原生expand保持广播语义
+
+
+@node(  # 注册时间移位节点
+    opcode="time_shift",  # 节点操作码
+    label="时间移位",  # 节点显示名称
+    ports={"input": {"x": "序列"}, "output": {"out": "移位序列"}},  # 输入和输出端口
+    params={"dim": {"label": "序列维度", "type": "int", "value": 1, "range": [-10, 10]}, "shift": {"label": "移位步数", "type": "int", "value": 1, "range": [1, 65536]}, "fill": {"label": "首位填充值", "type": "float", "value": 0.0, "range": [-65536, 65536]}},  # 时间移位参数
+    description="把序列中每个位置替换为前面位置的值，开头使用填充值",  # 节点描述
+)
+class TimeShiftNode(BaseNode):  # 继承BaseNode
+    def compute(self, input):  # 计算方法
+        x = input.get("x")  # 获取输入序列
+        dim = self.params.get("dim", 1)  # 获取序列维度
+        shift = self.params.get("shift", 1)  # 获取移位步数
+        fill = self.params.get("fill", 0.0)  # 获取首位填充值
+        if shift >= x.shape[dim]: return {"out": torch.full_like(x, fill)}  # 移位超出序列时整段使用填充值
+        shape = list(x.shape); shape[dim] = shift  # 构造首部填充形状
+        prefix = torch.full(shape, fill, dtype=x.dtype, device=x.device)  # 创建与输入同设备同类型的填充张量
+        return {"out": torch.cat((prefix, x.narrow(dim, 0, x.shape[dim] - shift)), dim=dim)}  # 拼接填充和前移序列
+
+
 @node(  # 注册detach节点
     opcode="detach",  # 节点操作码
     label="断梯度",  # 节点显示名称

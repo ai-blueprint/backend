@@ -10,7 +10,7 @@ import torch.nn as nn  # PyTorch 网络层能力，用于构建官方组件
 from registry import BaseNode, category, node  # 节点注册能力，将扩展层暴露给编辑器
 
 
-category(id="layers_extra", label="更多网络层", color="#45a99a", icon="")  # 聚合不属于现有单一分类的官方层
+category(id="transform", label="变换", color="#82cbfa", icon="")  # 扩展网络节点统一归入变换分类
 
 
 def parseSize(rawValue):

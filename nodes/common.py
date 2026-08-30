@@ -11,7 +11,7 @@ import torch.nn as nn  # PyTorch 层能力，用于构建常用可训练模块
 from registry import BaseNode, category, node  # 节点注册能力，将层暴露给蓝图编辑器
 
 
-category(id="common", label="常用层", color="#57b8a6", icon="")  # 注册常用模型组件分类
+category(id="transform", label="变换", color="#82cbfa", icon="")  # 常用网络节点归入变换分类
 
 
 def parseSize(rawValue):

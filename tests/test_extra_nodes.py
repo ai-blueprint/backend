@@ -12,11 +12,34 @@ class ExtraNodesTest(unittest.TestCase):
         frontendRegistry = registry.getAllForFrontend()  # 隐藏示例节点后得到用户实际可见注册表
 
         self.assertGreaterEqual(len(frontendRegistry["nodes"]), 100)
-        self.assertIn("activation_extra", frontendRegistry["categories"])
-        self.assertIn("layers_extra", frontendRegistry["categories"])
-        self.assertIn("loss_extra", frontendRegistry["categories"])
+        self.assertEqual(list(frontendRegistry["categories"]), ["base", "transform", "activation", "attention", "loss", "normalization", "shape", "math"])
+        self.assertIn("time_shift", frontendRegistry["nodes"])
         self.assertIn("transformer_encoder", frontendRegistry["nodes"])
         self.assertIn("gaussian_nll_loss", frontendRegistry["nodes"])
+
+    # --- 验证原生序列节点可组合出RWKV所需时间移位 ---
+    def test_sequence_nodes_keep_native_tensor_semantics(self):
+        values = torch.arange(24, dtype=torch.float32).reshape(2, 4, 3).requires_grad_()  # 构造批量序列并保留梯度
+        shifted = registry.createNode("time_shift", "shift", {})({"x": values})["out"]  # 时间移位首位补零并取前一位置
+        sliced = registry.createNode("slice", "slice", {"dim": 1, "start": 1, "end": -1})({"x": values})["out"]  # 截取序列中间部分
+        selected = registry.createNode("select", "select", {"dim": 1, "index": -1})({"x": values})["out"]  # 选择最后一个位置
+
+        self.assertTrue(torch.equal(shifted[:, 1:], values[:, :-1]))  # 移位结果应符合RWKV时间差分语义
+        self.assertEqual(list(sliced.shape), [2, 3, 3])  # 切片保持批次和特征维度
+        self.assertEqual(list(selected.shape), [2, 3])  # 选择位置移除序列维度
+        (shifted.sum() + sliced.sum() + selected.sum()).backward()  # 原生节点输出必须仍支持反向传播
+        self.assertIsNotNone(values.grad)  # 输入应收到梯度
+
+    # --- 验证统一Scan和Fold节点使用原生累计运算 ---
+    def test_scan_and_fold_keep_sequence_results(self):
+        values = torch.tensor([[[1.0], [2.0], [3.0]]], requires_grad=True)  # 构造短序列方便核对累计结果
+        scan = registry.createNode("scan", "scan", {})({"x": values})["out"]  # 扫描保留每个位置的累计和
+        fold = registry.createNode("fold", "fold", {})({"x": values})["out"]  # 折叠保留每个位置的累计积
+
+        self.assertTrue(torch.equal(scan, torch.tensor([[[1.0], [3.0], [6.0]]])))  # 扫描结果符合cumsum
+        self.assertTrue(torch.equal(fold, torch.tensor([[[1.0], [2.0], [6.0]]])))  # 折叠结果符合cumprod
+        (scan.sum() + fold.sum()).backward()  # 原生累计节点必须保留反向传播
+        self.assertIsNotNone(values.grad)  # 输入序列应收到梯度
 
     # --- 验证空间重排层保持元素数量 ---
     def test_pixel_shuffle_round_trip(self):
