@@ -427,7 +427,7 @@ async def run(blueprint, onMessage, onError, inputs=None, maxValues=65536, compi
                 nodeResults[nodeID] = outputValues  # 先写入数据流供下一节点读取
                 nodeDurations[nodeID] = durationMs  # 保存最近一次节点耗时
                 opcode = model.nodeData[nodeID].get("data", {}).get("opcode", "")  # 节点类型随结果返回
-                report = {"opcode": opcode, "outputs": serializeValue(outputValues, maxValues), "durationMs": durationMs}  # 序列化当前节点全部张量端口
+                report = {"opcode": opcode, "inputs": serializeValue(inputValues, maxValues), "outputs": serializeValue(outputValues, maxValues), "durationMs": durationMs}  # 同时反馈真实输入和输出，前端才能展示实际计算
                 callbackResult = onMessage(nodeID, report)  # 当前节点计算完成后立即反馈，不等待整图结束
                 if inspect.isawaitable(callbackResult):
                     await callbackResult  # WebSocket发送完成后再计算下游节点
