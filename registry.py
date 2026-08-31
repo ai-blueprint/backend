@@ -1,3 +1,4 @@
+import re  # 操作码命名校验能力，保证节点身份格式统一
 import threading  # 注册表同步能力，用于插件重载和蓝图编译互斥
 import torch.nn as nn
 
@@ -9,22 +10,24 @@ categoryOwners = {}  # 记录每个分类的归属，重载结果可明确追踪
 registrationOwner = "core"  # 动态导入期间由插件加载器临时切换所有者
 currentCategoryId = None  # 保存当前节点文件正在使用的分类上下文
 nodeAliases = {
+    "leakyRelu": ("leaky_relu", {}),  # 兼容旧版驼峰操作码，新的蓝图统一使用下划线命名
     "dropout1d": ("dropout", {"mode": "channel1d"}), "dropout2d": ("dropout", {"mode": "channel2d"}), "dropout3d": ("dropout", {"mode": "channel3d"}), "alpha_dropout": ("dropout", {"mode": "alpha"}), "feature_alpha_dropout": ("dropout", {"mode": "feature_alpha"}),
     "zeros_like": ("tensor_like", {"mode": "zeros"}), "ones_like": ("tensor_like", {"mode": "ones"}), "rand_like": ("tensor_like", {"mode": "random"}),
     "floor": ("rounding", {"mode": "floor"}), "ceil": ("rounding", {"mode": "ceil"}), "round": ("rounding", {"mode": "round"}), "trunc": ("rounding", {"mode": "trunc"}),
     "pixel_shuffle": ("pixel_rearrange", {"mode": "up", "factorFrom": "upscale_factor"}), "pixel_unshuffle": ("pixel_rearrange", {"mode": "down", "factorFrom": "downscale_factor"}),
 }  # 旧蓝图操作码集中迁移到统一节点
 
-friendlyLabels = {
+technicalLabels = {
     "input": "输入", "output": "输出", "debug": "调试", "linear": "Linear", "conv": "Conv", "pooling": "池化", "dropout": "Dropout", "embedding": "Embedding", "bilinear": "Bilinear", "conv_transpose": "ConvTranspose", "upsample": "Upsample", "channel_shuffle": "ChannelShuffle", "pixel_shuffle": "PixelShuffle", "pixel_unshuffle": "PixelUnshuffle", "identity": "Identity", "layer_norm": "LayerNorm", "group_norm": "GroupNorm", "batch_norm": "BatchNorm", "instance_norm": "InstanceNorm", "rms_norm": "RMSNorm",
-    "relu": "ReLU", "sigmoid": "Sigmoid", "tanh": "Tanh", "softmax": "Softmax", "softplus": "Softplus", "leakyRelu": "LeakyReLU", "elu": "ELU", "gelu": "GELU", "relu6": "ReLU6", "rrelu": "RReLU", "selu": "SELU", "celu": "CELU", "silu": "SiLU", "mish": "Mish", "hardsigmoid": "Hardsigmoid", "hardswish": "Hardswish", "log_sigmoid": "LogSigmoid", "prelu": "PReLU", "hardshrink": "Hardshrink", "softshrink": "Softshrink", "tanhshrink": "Tanhshrink", "threshold": "Threshold", "glu": "GLU", "softmin": "Softmin", "log_softmax": "LogSoftmax",
+    "relu": "ReLU", "sigmoid": "Sigmoid", "tanh": "Tanh", "softmax": "Softmax", "softplus": "Softplus", "leaky_relu": "LeakyReLU", "elu": "ELU", "gelu": "GELU", "relu6": "ReLU6", "rrelu": "RReLU", "selu": "SELU", "celu": "CELU", "silu": "SiLU", "mish": "Mish", "hardsigmoid": "Hardsigmoid", "hardswish": "Hardswish", "log_sigmoid": "LogSigmoid", "prelu": "PReLU", "hardshrink": "Hardshrink", "softshrink": "Softshrink", "tanhshrink": "Tanhshrink", "threshold": "Threshold", "glu": "GLU", "softmin": "Softmin", "log_softmax": "LogSoftmax",
     "multihead_attention": "MultiheadAttention", "scaled_dot_product_attention": "scaled_dot_product_attention", "cross_attention": "交叉注意力", "mse_loss": "MSELoss", "cross_entropy_loss": "CrossEntropyLoss", "l1_loss": "L1Loss", "bce_loss": "BCEWithLogitsLoss", "smooth_l1_loss": "SmoothL1Loss", "huber_loss": "HuberLoss", "poisson_nll_loss": "PoissonNLLLoss", "gaussian_nll_loss": "GaussianNLLLoss", "kl_div_loss": "KLDivLoss", "margin_ranking_loss": "MarginRankingLoss", "triplet_margin_loss": "TripletMarginLoss", "cosine_embedding_loss": "CosineEmbeddingLoss",
     "reshape": "reshape", "transpose": "transpose", "permute": "permute", "squeeze": "squeeze", "unsqueeze": "unsqueeze", "flatten": "flatten", "unflatten": "unflatten", "pad": "pad", "detach": "detach", "clone": "clone", "slice": "切片", "select": "select", "cat": "cat", "stack": "stack", "expand": "expand", "time_shift": "时间移位", "chunk": "chunk", "roll": "roll", "flip": "flip", "repeat_interleave": "repeat_interleave",
     "add": "add", "sub": "sub", "mul": "mul", "div": "div", "matmul": "matmul", "bmm": "bmm", "einsum": "einsum", "lerp": "lerp", "dot": "dot", "pow": "pow", "norm": "norm", "exp": "exp", "sqrt": "sqrt", "sum": "sum", "abs": "abs", "neg": "neg", "mean": "mean", "log": "log", "log10": "log10", "log2": "log2", "log1p": "log1p", "expm1": "expm1", "exp2": "exp2", "square": "square", "signbit": "signbit", "trunc": "trunc", "maximum": "maximum", "minimum": "minimum", "remainder": "remainder", "fmod": "fmod", "hypot": "hypot", "clamp": "clamp", "sign": "sign", "floor": "floor", "ceil": "ceil", "round": "round", "frac": "frac", "reciprocal": "reciprocal", "rsqrt": "rsqrt", "sin": "sin", "cos": "cos", "tan": "tan", "atan": "atan", "sinh": "sinh", "cosh": "cosh", "erf": "erf", "amax": "amax", "amin": "amin", "prod": "prod", "var": "var", "std": "std", "argmax": "argmax", "greater": "gt", "greater_equal": "ge", "less": "lt", "less_equal": "le", "equal": "eq", "zeros_like": "zeros_like", "ones_like": "ones_like", "rand_like": "rand_like", "max_pool1d": "MaxPool1d", "avg_pool1d": "AvgPool1d", "adaptive_avg_pool1d": "AdaptiveAvgPool1d", "dropout1d": "Dropout1d", "dropout2d": "Dropout2d", "dropout3d": "Dropout3d", "alpha_dropout": "AlphaDropout", "feature_alpha_dropout": "FeatureAlphaDropout", "local_response_norm": "LocalResponseNorm", "reflection_pad1d": "ReflectionPad1d", "cosine_similarity": "CosineSimilarity", "pairwise_distance": "PairwiseDistance", "scan": "cumsum", "fold": "cumprod", "cumulative_max": "cummax", "cumulative_min": "cummin",
 }
+friendlyLabels = technicalLabels  # 保留旧变量名，避免外部插件读取技术名称时发生兼容性断裂
 
 chineseLabels = {
-    "relu": "负数变零", "sigmoid": "压到零和一", "tanh": "压到负一和一", "softmax": "变成概率", "softplus": "平滑变正", "leakyRelu": "负数保留一点", "elu": "负数平滑变化", "gelu": "平滑门控", "relu6": "限制在零到六", "rrelu": "随机负数斜率", "selu": "自归一化激活", "celu": "连续指数激活", "silu": "平滑门控激活", "mish": "平滑自门控", "hardsigmoid": "快速压到零和一", "hardswish": "快速平滑门控", "log_sigmoid": "对数概率", "prelu": "可学习负数斜率", "hardshrink": "硬收缩小数", "softshrink": "软收缩小数", "tanhshrink": "减去双曲正切", "threshold": "低于阈值替换", "glu": "门控分成两半", "softmin": "小值变大概率", "log_softmax": "对数概率分布",
+    "relu": "负数变零", "sigmoid": "压到零和一", "tanh": "压到负一和一", "softmax": "变成概率", "softplus": "平滑变正", "leaky_relu": "负数保留一点", "elu": "负数平滑变化", "gelu": "平滑门控", "relu6": "限制在零到六", "rrelu": "随机负数斜率", "selu": "自归一化激活", "celu": "连续指数激活", "silu": "平滑门控激活", "mish": "平滑自门控", "hardsigmoid": "快速压到零和一", "hardswish": "快速平滑门控", "log_sigmoid": "对数概率", "prelu": "可学习负数斜率", "hardshrink": "硬收缩小数", "softshrink": "软收缩小数", "tanhshrink": "减去双曲正切", "threshold": "低于阈值替换", "glu": "门控分成两半", "softmin": "小值变大概率", "log_softmax": "对数概率分布",
     "linear": "线性层", "conv": "卷积层", "pooling": "池化", "dropout": "随机丢弃", "embedding": "嵌入", "bilinear": "双输入线性层", "conv_transpose": "转置卷积", "upsample": "上采样", "channel_shuffle": "通道重排", "pixel_shuffle": "像素上采样", "pixel_unshuffle": "像素下采样", "reflection_pad1d": "反射填充", "local_response_norm": "局部归一化", "dropout1d": "一维随机丢弃", "alpha_dropout": "Alpha随机丢弃", "feature_alpha_dropout": "特征随机丢弃", "cosine_similarity": "余弦相似度", "pairwise_distance": "成对距离", "max_pool1d": "一维最大池化", "avg_pool1d": "一维平均池化", "adaptive_avg_pool1d": "一维自适应平均池化", "dropout2d": "二维随机丢弃", "dropout3d": "三维随机丢弃",
     "multihead_attention": "多头注意力", "scaled_dot_product_attention": "缩放点积注意力", "cross_attention": "交叉注意力", "mse_loss": "平均平方误差", "cross_entropy_loss": "分类误差", "l1_loss": "绝对值误差", "bce_loss": "二分类误差", "smooth_l1_loss": "平滑绝对值误差", "huber_loss": "Huber误差", "poisson_nll_loss": "泊松误差", "gaussian_nll_loss": "高斯误差", "kl_div_loss": "分布差异", "margin_ranking_loss": "排序误差", "triplet_margin_loss": "三元组误差", "cosine_embedding_loss": "方向相似误差",
     "layer_norm": "层归一化", "group_norm": "组归一化", "batch_norm": "批归一化", "instance_norm": "样本归一化", "rms_norm": "均方根归一化", "reshape": "改变形状", "transpose": "交换维度", "permute": "重排维度", "squeeze": "去掉单维度", "unsqueeze": "增加单维度", "flatten": "压平维度", "unflatten": "拆开维度", "pad": "填充边缘", "select": "选择位置", "cat": "连接张量", "stack": "堆叠张量", "expand": "扩大尺寸", "time_shift": "时间移位", "chunk": "分成几块", "roll": "循环移位", "flip": "翻转顺序", "repeat_interleave": "重复元素",
@@ -32,6 +35,7 @@ chineseLabels = {
 }
 
 categoriesOrder = ["base", "transform", "activation", "loss", "normalization", "shape", "math"]
+opcodePattern = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$")  # 新操作码统一使用小写下划线格式
 
 
 def clearAll():  # 清空注册表，热重载时调用
@@ -60,12 +64,14 @@ def registerCategory(id, label, color, icon):
 
 
 def registerNode(opcode, label, ports, params, description, cls):
+    if not isinstance(opcode, str) or not opcodePattern.fullmatch(opcode):
+        raise ValueError(f"节点操作码必须使用snake_case命名: {opcode}")  # 阻止新的驼峰或大写操作码进入注册表
     existingOwner = nodeOwners.get(opcode)  # 读取已注册操作码的归属
     if existingOwner and existingOwner != registrationOwner:
         raise ValueError(f"节点冲突: {opcode} 已由 {existingOwner} 注册")  # 冲突必须显式失败而不是替换实现
     if not currentCategoryId or currentCategoryId not in categories:
         raise ValueError(f"节点 {opcode} 注册前必须先声明分类")  # 隐式使用最后分类需要先有明确分类
-    nodes[opcode] = {"opcode": opcode, "label": chineseLabels.get(opcode, label), "ports": ports, "params": params, "description": description, "cls": cls}
+    nodes[opcode] = {"opcode": opcode, "technicalLabel": technicalLabels.get(opcode, opcode), "label": chineseLabels.get(opcode, label), "ports": ports, "params": params, "description": description, "cls": cls}
     categories[currentCategoryId]["nodes"].append(opcode)  # 节点归入当前分类上下文，不依赖字典顺序
     nodeOwners[opcode] = registrationOwner  # 节点创建成功后记录当前导入所有者
 

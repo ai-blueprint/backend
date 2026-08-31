@@ -54,9 +54,21 @@ ws://127.0.0.1:8765
 
 节点放在 `nodes/` 目录中。普通节点使用统一定义：
 
+### 节点命名
+
+一个节点有三种名字，分别服务于机器、专业学习和初学者：
+
+| 字段 | 示例 | 谁使用 | 应该怎么写 |
+|---|---|---|---|
+| `opcode` | `leaky_relu` | 蓝图和后端 | 稳定不变的小写下划线标识 |
+| `technicalLabel` | `LeakyReLU` | 教学、搜索和 PyTorch 用户 | 对应标准库或论文中的术语 |
+| `label` | `负数保留一点` | 节点列表和画布 | 一眼能看懂的白话名称 |
+
+例如，`leaky_relu` 的意思是：正数照原样通过，负数不再完全变成零，而是保留一个小斜率。新节点只能使用 `opcode` 的规范格式；历史名称可以登记到 `registry.nodeAliases`，只负责兼容旧蓝图，不会出现在新节点列表中。
+
 ```python
 @node(
-    opcode="example",
+    opcode="example_node",
     label="示例",
     ports={"input": {"x": "输入"}, "output": {"out": "输出"}},
     params={},
