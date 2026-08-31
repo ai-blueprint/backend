@@ -196,7 +196,7 @@ class SoftplusNode(BaseNode):  # 继承BaseNode
 
 @node(  # 注册LeakyReLU节点
     opcode="leaky_relu",  # 节点操作码统一使用小写下划线格式
-    label="带泄漏归正",  # 节点显示名称
+    label="泄漏ReLU",  # 节点显示名称保持简短，完整含义由description说明
     ports={  # 端口定义
         "input": {"x": ""},  # 一个输入端口
         "output": {"out": ""},  # 一个输出端口
