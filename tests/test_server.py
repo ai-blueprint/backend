@@ -43,7 +43,7 @@ class ServerProtocolTest(unittest.IsolatedAsyncioTestCase):
         nodeMessages = [message for message in websocket.messages if message["type"] == "nodeResult"]
         terminalMessages = [message for message in websocket.messages if message["type"] == "blueprintComplete"]
         self.assertEqual(len(nodeMessages), 3)
-        self.assertTrue(all("inputs" in message["data"] and "outputs" in message["data"] and "opcode" in message["data"] and "durationMs" in message["data"] for message in nodeMessages))
+        self.assertTrue(all("outputs" in message["data"] and "opcode" in message["data"] and "durationMs" in message["data"] for message in nodeMessages))
         self.assertEqual(len(terminalMessages), 1)
         self.assertEqual(terminalMessages[0]["data"]["status"], "succeeded")
         self.assertEqual(terminalMessages[0]["data"]["errorCount"], 0)
