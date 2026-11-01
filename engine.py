@@ -6,6 +6,9 @@ forward 接收按输入节点 ID 命名的值，返回按输出节点 ID 命名�
 调用示例：model = compileBlueprint(blueprint); outputs = model({"input-1": tensor})
 """
 
+import asyncio  # 事件循环能力，用于把计算线程的通知送回WebSocket所在线程
+import concurrent.futures  # 线程池能力，用于把PyTorch计算移出事件循环
+import functools  # 参数绑定能力，用于把带参数的计算交给线程池
 import inspect  # 回调能力，用于兼容同步和异步通知
 import json  # 缓存键编码能力，用于比较蓝图业务内容是否变化
 import math  # 有限数值判断能力，用于生成浏览器可解析JSON
@@ -23,6 +26,37 @@ import sort  # 图排序能力，确定稳定执行顺序
 
 
 loader.loadAll()  # 进程启动时装载内置节点，编译请求可立即使用注册表
+
+
+computeExecutor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="blueprint-compute")  # 唯一计算线程：事件循环保持响应，模型缓存和注册表重载也因此天然串行
+
+
+# --- 在计算线程执行同步任务 ---
+async def runInWorker(func, *args, **kwargs):
+    """
+    用法：result = await runInWorker(model.trainStep, 128)  # 计算期间事件循环继续处理其他连接和心跳
+    """
+    loop = asyncio.get_running_loop()  # 结果回到调用方所在的事件循环
+    return await loop.run_in_executor(computeExecutor, functools.partial(func, *args, **kwargs))  # 排队进入唯一计算线程
+
+
+# --- 在事件循环线程执行一次回调 ---
+async def invokeCallback(callback, *args):
+    callbackResult = callback(*args)  # 回调始终运行在事件循环线程，与原有同步和异步回调语义一致
+    if inspect.isawaitable(callbackResult):
+        await callbackResult  # 异步回调完成后才算送达
+
+
+# --- 从计算线程调用事件循环回调并等待完成 ---
+def callOnLoop(loop, callback, *args):
+    future = asyncio.run_coroutine_threadsafe(invokeCallback(callback, *args), loop)  # 把回调交回WebSocket所在线程
+    while True:
+        try:
+            return future.result(timeout=1)  # 等待发送完成，保持逐节点反馈顺序和背压
+        except concurrent.futures.TimeoutError:
+            if loop.is_closed() or not loop.is_running():
+                future.cancel()  # 事件循环已经停止时不再无限等待
+                raise RuntimeError("事件循环已停止，无法继续发送节点结果")
 
 
 class BlueprintError(Exception):
@@ -395,6 +429,18 @@ def serializeValue(value, maxValues=65536):
 
 # --- 异步运行预览并反馈节点结果 ---
 async def run(blueprint, onMessage, onError, inputs=None, maxValues=65536, compiledModel=None):
+    """
+    编译和逐节点计算都在计算线程执行，回调仍在调用方的事件循环里运行。
+    用法：result = await run(blueprint, onMessage, onError)
+    """
+    loop = asyncio.get_running_loop()  # 节点反馈必须回到当前WebSocket事件循环发送
+    notifyMessage = functools.partial(callOnLoop, loop, onMessage)  # 计算线程内同步等待结果发送完成
+    notifyError = functools.partial(callOnLoop, loop, onError)  # 错误反馈同样回到事件循环
+    return await runInWorker(runSync, blueprint, notifyMessage, notifyError, inputs, maxValues, compiledModel)  # 计算期间事件循环继续响应其他请求
+
+
+# --- 同步运行预览并反馈节点结果 ---
+def runSync(blueprint, onMessage, onError, inputs=None, maxValues=65536, compiledModel=None):
     startedAt = time.perf_counter()  # 蓝图总耗时从编译前开始计算
     try:
         model = compiledModel or compileBlueprintCached(blueprint)  # 蓝图未变时复用同一模型，让连续观察保持权重稳定
@@ -418,9 +464,7 @@ async def run(blueprint, onMessage, onError, inputs=None, maxValues=65536, compi
                         raise BlueprintError("invalidNodeOutput", "节点输出必须是端口对象", {"nodeId": nodeID})  # 图路由依赖命名端口
                 except Exception as error:
                     nodeError = error if isinstance(error, BlueprintError) else BlueprintError("nodeExecutionFailed", f"节点执行失败: {error}", {"nodeId": nodeID, "opcode": model._getOpcode(nodeID)})
-                    callbackResult = onError(nodeID, nodeError.toData())  # 错误只标记当前节点
-                    if inspect.isawaitable(callbackResult):
-                        await callbackResult  # 错误图标先更新，再继续计算其他独立分支
+                    onError(nodeID, nodeError.toData())  # 错误只标记当前节点，反馈送达后再继续计算其他独立分支
                     errorCount += 1
                     continue
                 durationMs = (time.perf_counter() - nodeStartedAt) * 1000  # 计算完成后立即得到本节点耗时
@@ -428,9 +472,7 @@ async def run(blueprint, onMessage, onError, inputs=None, maxValues=65536, compi
                 nodeDurations[nodeID] = durationMs  # 保存最近一次节点耗时
                 opcode = model.nodeData[nodeID].get("data", {}).get("opcode", "")  # 节点类型随结果返回
                 report = {"opcode": opcode, "outputs": serializeValue(outputValues, maxValues), "durationMs": durationMs}  # 序列化当前节点全部张量端口
-                callbackResult = onMessage(nodeID, report)  # 当前节点计算完成后立即反馈，不等待整图结束
-                if inspect.isawaitable(callbackResult):
-                    await callbackResult  # WebSocket发送完成后再计算下游节点
+                onMessage(nodeID, report)  # 当前节点计算完成后立即反馈，发送完成后再计算下游节点
 
         model.lastNodeResults = nodeResults  # 完整传播结束后保存最近结果
         model.lastNodeDurations = nodeDurations  # 完整传播结束后保存最近耗时
@@ -441,8 +483,6 @@ async def run(blueprint, onMessage, onError, inputs=None, maxValues=65536, compi
         return {"status": status, "outputs": serializeValue(modelOutputs, maxValues), "outputNodeIds": completedOutputIDs, "errorCount": errorCount, "durationMs": durationMs}  # 返回本轮完整终态
     except Exception as error:
         blueprintError = error if isinstance(error, BlueprintError) else BlueprintError("blueprintFailed", str(error))  # 未分类异常统一收口
-        callbackResult = onError(blueprintError.details.get("nodeId", ""), blueprintError.toData())  # 流式反馈结构化错误
-        if inspect.isawaitable(callbackResult):
-            await callbackResult  # 确保错误先于终态返回
+        onError(blueprintError.details.get("nodeId", ""), blueprintError.toData())  # 流式反馈结构化错误，确保错误先于终态返回
         durationMs = (time.perf_counter() - startedAt) * 1000  # 失败同样报告已消耗时间
         return {"status": "failed", "error": blueprintError.toData(), "outputNodeIds": [], "errorCount": 1, "durationMs": durationMs}  # 由调用方仍发送一次 blueprintComplete

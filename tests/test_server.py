@@ -1,11 +1,18 @@
+import asyncio  # 并发能力，用于同时发出慢计算和注册表请求
 import json  # 消息解析能力，用于检查假WebSocket收到的协议对象
 import logging  # 日志记录能力，用于验证端口探测过滤
+import threading  # 线程同步能力，用于精确控制慢计算何时结束
 import unittest  # 异步单元测试能力，用于覆盖WebSocket入口
+from unittest import mock  # 替换能力，用于把编译变成可控的慢操作
 
 from websockets.exceptions import InvalidMessage  # 握手异常类型，用于模拟空TCP探测
 
+import engine  # 执行引擎，用于替换编译函数和清理模型缓存
+import plugin_hot_reload  # 热重载入口，用于验证计算线程中的注册表重建
+import registry  # 注册表，用于检查发布的前端快照
 import server  # WebSocket触发入口，是本组测试主体
 from blueprints import linearBlueprint  # 共享最小蓝图用于成功和失败终态测试
+from test_training import trainingBlueprint  # 复用训练用例的预测加目标蓝图
 
 
 class FakeWebSocket:
@@ -88,6 +95,44 @@ class ServerProtocolTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(websocket.messages), 1)
         self.assertEqual(websocket.messages[0]["type"], "blueprintComplete")
         self.assertEqual(websocket.messages[0]["data"]["status"], "failed")
+
+    async def test_slow_compute_does_not_block_other_requests(self):
+        for messageType, data in (("runBlueprint", {"blueprint": linearBlueprint()}), ("trainStep", {"blueprint": trainingBlueprint(), "maxValues": 8})):
+            with self.subTest(messageType=messageType):
+                engine.clearModelCache()  # 强制本轮重新编译，进入被替换的慢编译
+                computeWebSocket = FakeWebSocket()  # 收集慢计算请求的反馈
+                registryWebSocket = FakeWebSocket()  # 另一个编辑器连接
+                releaseCompile = threading.Event()  # 由测试决定慢编译何时结束
+                compileStarted = threading.Event()  # 确认慢编译已经占住计算线程
+                originalCompile = engine.compileBlueprintCached
+
+                def slowCompile(blueprint):
+                    compileStarted.set()
+                    releaseCompile.wait(timeout=10)  # 模拟长时间编译或计算
+                    return originalCompile(blueprint)
+
+                with mock.patch.object(engine, "compileBlueprintCached", slowCompile):
+                    computeTask = asyncio.create_task(server.handleMessage(computeWebSocket, json.dumps({"type": messageType, "id": "slow", "data": data})))
+                    await asyncio.to_thread(compileStarted.wait, 10)  # 等待计算线程真正开始执行
+                    await asyncio.wait_for(server.handleMessage(registryWebSocket, json.dumps({"type": "getRegistry", "id": "registry-1"})), timeout=2)  # 计算进行中注册表请求必须立即返回
+                    self.assertFalse(computeTask.done())  # 慢计算此时确实仍在进行
+                    releaseCompile.set()
+                    await asyncio.wait_for(computeTask, timeout=10)
+
+                self.assertEqual(registryWebSocket.messages[0]["type"], "getRegistry")
+                self.assertIn("nodes", registryWebSocket.messages[0]["data"])
+                self.assertEqual(computeWebSocket.messages[-1]["type"], "blueprintComplete" if messageType == "runBlueprint" else "trainStep")
+                self.assertNotIn("error", computeWebSocket.messages[-1])
+
+    async def test_hot_reload_rebuilds_registry_in_compute_thread(self):
+        try:
+            messageType, messageData = await engine.runInWorker(plugin_hot_reload.reloadRegistry)  # 与真实热重载一样在计算线程执行
+            self.assertEqual(messageType, "registryUpdated")
+            self.assertIs(registry.getPublishedForFrontend(), messageData)  # 事件循环读取的是重建完成后整体发布的快照
+            self.assertIn("linear", messageData["nodes"])
+        finally:
+            registry.publishedFrontend = None  # 恢复为直接读取注册表，避免影响其他用例
+
 
 if __name__ == "__main__":
     unittest.main()

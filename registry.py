@@ -110,6 +110,17 @@ def getAllForFrontend():
     return result  # 返回排序后的结果
 
 
+publishedFrontend = None  # 热重载在计算线程整体替换的前端注册表快照，None表示注册表从未在运行时变化
+
+
+def getPublishedForFrontend():
+    """
+    用法：data = getPublishedForFrontend()  # 事件循环线程读取完整注册表，不受计算线程重载影响
+    """
+    snapshot = publishedFrontend  # 一次读取引用，替换是原子的
+    return snapshot if snapshot is not None else getAllForFrontend()  # 未发生热重载时直接读取当前注册表
+
+
 def validateParams(opcode, params):
     """根据注册定义做通用参数校验，统一返回扁平值字典。"""
     definition = nodes[opcode].get("params", {})  # 获取节点参数定义

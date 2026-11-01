@@ -94,7 +94,7 @@ async def handleMessage(ws, message):
 
     try:
         if messageType == "getRegistry":
-            await sendMessage(ws, "getRegistry", messageId, registry.getAllForFrontend())  # 返回当前教学节点定义
+            await sendMessage(ws, "getRegistry", messageId, registry.getPublishedForFrontend())  # 返回完整注册表快照，计算线程热重载期间也不会读到半成品
             return
 
         messageData = getRequestData(requestData)  # 业务消息必须携带对象data
@@ -113,13 +113,17 @@ async def handleMessage(ws, message):
 
         if messageType == "trainStep":
             blueprint = getBlueprint(messageData)  # 单步训练使用当前完整蓝图
-            model = engine.compileBlueprintCached(blueprint)  # 蓝图不变时保留权重和优化器状态
-            result = model.trainStep(messageData.get("maxValues", 65536), messageData.get("optimizer", "sgd"), messageData.get("learningRate", 0.01), messageData.get("gradientClip", 0.0))  # 使用用户超参数执行一次前向、反向和权重更新
+
+            def trainSync():
+                model = engine.compileBlueprintCached(blueprint)  # 蓝图不变时保留权重和优化器状态
+                return model.trainStep(messageData.get("maxValues", 65536), messageData.get("optimizer", "sgd"), messageData.get("learningRate", 0.01), messageData.get("gradientClip", 0.0))  # 使用用户超参数执行一次前向、反向和权重更新
+
+            result = await engine.runInWorker(trainSync)  # 编译和训练在计算线程执行，事件循环继续响应其他请求
             await sendMessage(ws, "trainStep", messageId, result)  # 返回loss、预测值、目标值和节点训练快照
             return
 
         if messageType == "resetTraining":
-            engine.clearModelCache()  # 丢弃权重和优化器状态，下次训练重新按节点ID初始化
+            await engine.runInWorker(engine.clearModelCache)  # 排在已提交的计算之后清空缓存，避免与在途训练交错
             await sendMessage(ws, "resetTraining", messageId, {"status": "reset"})  # 告知前端训练已经回到初始状态
             return
 

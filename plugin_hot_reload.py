@@ -21,6 +21,17 @@ async def runHotReload(broadcast, folder="nodes"):
 
         print(f"检测到节点文件变化: {pyChanges}")  # 输出变化详情
         await asyncio.sleep(0.1)  # 简单防抖，合并极短时间内的多次保存
+        messageType, messageData = await engine.runInWorker(reloadRegistry, folder)  # 排在在途计算之后重建注册表，事件循环不被导入阻塞
+        await broadcast(messageType, messageData)  # 广播更新后的注册表或失败信息
+
+
+# --- 在计算线程重建注册表 ---
+def reloadRegistry(folder="nodes"):
+    """
+    用法：messageType, messageData = reloadRegistry()  # 只能在 engine.computeExecutor 中调用
+    """
+    with registry.registryLock:
+        registry.publishedFrontend = registry.getAllForFrontend()  # 重建前先冻结当前完整注册表，事件循环在重建期间只读这份快照
         nodesSnapshot, categoriesSnapshot, nodeOwnersSnapshot, categoryOwnersSnapshot = (
             copy.deepcopy(registry.nodes),
             copy.deepcopy(registry.categories),
@@ -32,8 +43,9 @@ async def runHotReload(broadcast, folder="nodes"):
             loader.reloadAll(folder)  # 全量重建注册表，复用已有重载逻辑
             plugins.reloadPlugins()  # 核心注册表清空后重新挂载全部启用插件
             engine.clearModelCache()  # 节点实现已替换，缓存模型必须按新注册表重建
+            registry.publishedFrontend = registry.getAllForFrontend()  # 重建完成后整体发布新注册表
             print("热重载完成，广播新registry")  # 输出成功日志
-            await broadcast("registryUpdated", registry.getAllForFrontend())  # 广播更新后的注册表给前端
+            return "registryUpdated", registry.publishedFrontend
         except Exception as error:
             print(f"热重载失败，回滚: {error}")  # 输出失败日志
             registry.nodes.clear()  # 清空当前节点注册表
@@ -44,7 +56,7 @@ async def runHotReload(broadcast, folder="nodes"):
             registry.nodeOwners.update(nodeOwnersSnapshot)  # 回滚节点所有权快照
             registry.categoryOwners.clear()  # 清空失败重载产生的分类归属
             registry.categoryOwners.update(categoryOwnersSnapshot)  # 回滚分类所有权快照
-            await broadcast("reloadError", {"error": str(error)})  # 广播热重载失败信息
+            return "reloadError", {"error": str(error)}  # 回滚后保持重建前发布的快照
 
 
 def mountHotReload(loop, broadcast, folder="nodes"):
