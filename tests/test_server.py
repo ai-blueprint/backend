@@ -133,6 +133,24 @@ class ServerProtocolTest(unittest.IsolatedAsyncioTestCase):
         finally:
             registry.publishedFrontend = None  # 恢复为直接读取注册表，避免影响其他用例
 
+    async def test_stop_signal_aborts_run_and_training(self):
+        engine.clearModelCache()  # 从编译阶段开始验证检查点
+        try:
+            engine.requestStop()  # 模拟 Ctrl+C 已经发出停止信号
+            runWebSocket = FakeWebSocket()
+            await server.handleMessage(runWebSocket, json.dumps({"type": "runBlueprint", "id": "stop-run", "data": {"blueprint": linearBlueprint()}}))
+            terminal = runWebSocket.messages[-1]
+            self.assertEqual(terminal["type"], "blueprintComplete")  # 中止后仍然只给前端一个终态
+            self.assertEqual(terminal["data"]["status"], "failed")
+            self.assertEqual(terminal["data"]["error"]["code"], "serverStopping")
+
+            trainWebSocket = FakeWebSocket()
+            await server.handleMessage(trainWebSocket, json.dumps({"type": "trainStep", "id": "stop-train", "data": {"blueprint": trainingBlueprint()}}))
+            self.assertEqual(trainWebSocket.messages[-1]["type"], "trainStep")
+            self.assertEqual(trainWebSocket.messages[-1]["error"]["code"], "serverStopping")
+        finally:
+            engine.stopEvent.clear()  # 恢复服务状态，避免影响其他用例
+
 
 if __name__ == "__main__":
     unittest.main()

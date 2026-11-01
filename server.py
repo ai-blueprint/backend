@@ -8,6 +8,8 @@ server.py - 教学实验 WebSocket 服务
 import asyncio  # 异步服务能力，用于同时处理编辑器连接和节点热重载
 import json  # 标准信封编码能力，用于浏览器与后端通信
 import logging  # 日志过滤能力，用于忽略握手前断开的端口探测
+import os  # 进程能力，用于第二次 Ctrl+C 时强制退出
+import signal  # 信号能力，用于响应 Ctrl+C 和终止信号
 
 import websockets  # WebSocket服务能力，用于实时反馈逐节点结果
 from websockets.exceptions import InvalidMessage  # 握手异常类型，用于精准过滤无请求探测
@@ -150,15 +152,46 @@ async def handleConnection(ws):
         print(f"前端已断开，当前连接数: {len(clients)}")  # 记录连接收口
 
 
+# --- 安装 Ctrl+C 和终止信号处理 ---
+def installStopHandlers(loop, stopSignal):
+    def onStopSignal():
+        if stopSignal.is_set():
+            print("再次收到退出信号，强制退出")  # 单个超大算子迟迟不结束时给用户留出口
+            os._exit(1)  # 不再等待计算线程
+        stopSignal.set()  # 第一次信号只通知主流程开始优雅关闭
+
+    for signalNumber in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(signalNumber, onStopSignal)  # Unix 事件循环原生支持
+        except (NotImplementedError, RuntimeError, ValueError):
+            signal.signal(signalNumber, lambda *_: loop.call_soon_threadsafe(onStopSignal))  # Windows 事件循环不支持时退回标准信号处理
+
+
+# --- 运行服务直到收到退出信号 ---
+async def serve(host="127.0.0.1", port=8765):
+    loop = asyncio.get_running_loop()  # 信号和热重载都挂在当前事件循环
+    stopSignal = asyncio.Event()  # Ctrl+C 或 SIGTERM 触发
+    installStopHandlers(loop, stopSignal)
+    async with websockets.serve(handleConnection, host, port) as service:
+        boundPort = service.sockets[0].getsockname()[1]  # port=0 时读取系统实际分配的端口
+        print(f"WebSocket服务已启动: ws://{host}:{boundPort}（按 Ctrl+C 退出）")  # 握手监听成功
+        import plugin_hot_reload  # 节点文件热重载作为可拔插开发能力
+        hotReloadTask = plugin_hot_reload.mountHotReload(loop, broadcast)  # 节点变化后广播新注册表
+        await stopSignal.wait()  # 保持服务常驻，直到收到退出信号
+
+        print("收到退出信号，正在停止计算线程...（再次按 Ctrl+C 强制退出）")
+        engine.requestStop()  # 正在执行的计算在下一个节点检查点中止，并照常给前端发送终态
+        hotReloadTask.cancel()  # 停止监听节点文件
+        await asyncio.gather(hotReloadTask, return_exceptions=True)  # 等待监听任务真正结束
+        await asyncio.to_thread(engine.computeExecutor.shutdown, wait=True, cancel_futures=True)  # 丢弃排队任务并等待当前计算退出；事件循环继续运行，中止反馈才能发出去
+        print(f"计算线程已停止，正在关闭 {len(clients)} 个连接...")
+    print("后端已退出")  # 离开 async with 时服务端以 1001 关闭全部连接并释放端口
+
+
 # --- 启动本地实验服务 ---
 def start(host="127.0.0.1", port=8765):
     print(f"WebSocket服务启动中... ws://{host}:{port}")  # 默认仅监听本机，避免实验接口暴露到局域网
-
-    async def main():
-        async with websockets.serve(handleConnection, host, port):
-            print(f"WebSocket服务已启动: ws://{host}:{port}")  # 握手监听成功
-            import plugin_hot_reload  # 节点文件热重载作为可拔插开发能力
-            plugin_hot_reload.mountHotReload(asyncio.get_running_loop(), broadcast)  # 节点变化后广播新注册表
-            await asyncio.Future()  # 保持服务常驻
-
-    asyncio.run(main())  # 启动异步事件循环
+    try:
+        asyncio.run(serve(host, port))  # 启动异步事件循环，收到退出信号后正常返回
+    except KeyboardInterrupt:
+        print("后端已退出")  # 信号处理器安装前就按下 Ctrl+C 时安静退出

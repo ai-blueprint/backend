@@ -12,6 +12,7 @@ import functools  # 参数绑定能力，用于把带参数的计算交给线程
 import inspect  # 回调能力，用于兼容同步和异步通知
 import json  # 缓存键编码能力，用于比较蓝图业务内容是否变化
 import math  # 有限数值判断能力，用于生成浏览器可解析JSON
+import threading  # 线程信号能力，用于通知计算线程尽快结束
 import zlib  # 稳定哈希能力，用于把节点ID转换为固定初始化种子
 import time  # 单调计时能力，用于记录节点和蓝图耗时
 from collections import defaultdict  # 边分组能力，用于快速收集节点输入
@@ -26,9 +27,22 @@ import sort  # 图排序能力，确定稳定执行顺序
 
 
 loader.loadAll()  # 进程启动时装载内置节点，编译请求可立即使用注册表
+import torch._dynamo  # noqa: E402,F401  首次创建优化器会导入它（约0.7秒且无法中途停止），启动时预先导入，首次运行不卡顿、Ctrl+C 也能及时响应
 
 
 computeExecutor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="blueprint-compute")  # 唯一计算线程：事件循环保持响应，模型缓存和注册表重载也因此天然串行
+stopEvent = threading.Event()  # 服务关闭信号：计算线程在每个节点之间检查，单个PyTorch算子无法中途打断
+
+
+# --- 通知计算线程停止 ---
+def requestStop():
+    stopEvent.set()  # 正在执行的编译、预览和训练会在下一个检查点中止
+
+
+# --- 计算检查点 ---
+def checkStop():
+    if stopEvent.is_set():
+        raise BlueprintError("serverStopping", "后端正在关闭，本次计算已中止")  # 走统一错误协议，前端能看到明确原因
 
 
 # --- 在计算线程执行同步任务 ---
@@ -140,6 +154,7 @@ class BlueprintModel(nn.Module):
         nodeModules = {}  # ModuleDict 需要不含点号的稳定内部键
         self.moduleKeys = {}  # 前端节点 ID 映射到安全内部键，图协议仍保留原 ID
         for nodeIndex, nodeID in enumerate(self.sortedIDs):
+            checkStop()  # 大权重初始化很慢，每创建一个节点前确认服务没有在关闭
             node = self.nodeData[nodeID]  # 拓扑 ID 已由严格排序验证存在
             moduleKey = f"node_{nodeIndex}"  # 顺序键避开 ModuleDict 禁止的点号等前端字符
             self.moduleKeys[nodeID] = moduleKey  # 路由时通过映射找到持久模块
@@ -268,6 +283,7 @@ class BlueprintModel(nn.Module):
                 self.trainingInputs[inputID] = self.nodeModules[self.moduleKeys[inputID]]({}).get("out").detach()  # 第一步生成固定训练批次，后续重复使用
         nodeResults = {}  # 保存本轮所有端口值供后续节点和损失读取
         for nodeID in self.sortedIDs:
+            checkStop()  # 服务关闭时放弃本轮训练，不执行反向传播和权重更新
             inputValues = self._collectInputs(nodeID, nodeResults, self.trainingInputs)  # 沿蓝图连线收集输入并复用固定训练批次
             if self._getOpcode(nodeID) != "input" and any(value is None for value in inputValues.values()):
                 continue  # 目标或预测分支断路时跳过当前节点
@@ -451,6 +467,7 @@ def runSync(blueprint, onMessage, onError, inputs=None, maxValues=65536, compile
         errorCount = 0  # 节点错误只影响自身和依赖它的下游，不终止其他分支
         with torch.no_grad():
             for nodeID in model.sortedIDs:
+                checkStop()  # 服务关闭时中止整轮预览，由下方统一返回failed终态
                 incomingEdges = model.edgesByTarget.get(nodeID, [])  # 读取当前节点全部上游连线
                 if any(edge.get("source", "") not in nodeResults for edge in incomingEdges):
                     continue  # 任一上游没有结果时跳过当前节点，下游也会自然保持无值
