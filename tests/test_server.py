@@ -163,6 +163,7 @@ class ServerProtocolTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_each_connection_trains_its_own_model(self):
         engine.clearModelCache()
+        self.addCleanup(engine.clearModelCache)  # 断言中途失败也不把两个连接的槽位留给后续用例
         first, second = FakeWebSocket("editor-1"), FakeWebSocket("editor-2")  # 两个编辑器打开同一张蓝图
         request = lambda requestId: json.dumps({"type": "trainStep", "id": requestId, "data": {"blueprint": trainingBlueprint(), "maxValues": 8}})
         await server.handleMessage(first, request("a1"))
@@ -179,10 +180,16 @@ class ServerProtocolTest(unittest.IsolatedAsyncioTestCase):
         await server.handleMessage(first, json.dumps({"type": "resetTraining", "id": "reset", "data": {}}))
         await server.handleMessage(first, request("a4"))
         self.assertEqual(losses(first)[3], losses(first)[0])  # 重置后训练批次和权重都按节点ID固定，第一步完全复现
-        engine.clearModelCache()
 
     async def test_disconnect_releases_connection_model(self):
         engine.clearModelCache()
+        self.addCleanup(engine.clearModelCache)
+        slotCreated = []  # 记录断开前该连接确实建立过自己的槽位
+        originalClear = engine.clearModelCache
+
+        def recordingClear(*args, **kwargs):
+            slotCreated.append("editor-closing" in engine.modelCache)  # 清理执行前检查槽位是否存在
+            return originalClear(*args, **kwargs)
 
         class ClosingWebSocket(FakeWebSocket):
             def __init__(self, connectionId, messages):
@@ -198,8 +205,10 @@ class ServerProtocolTest(unittest.IsolatedAsyncioTestCase):
                 return self.incoming.pop(0)
 
         websocket = ClosingWebSocket("editor-closing", [json.dumps({"type": "trainStep", "id": "t", "data": {"blueprint": trainingBlueprint(), "maxValues": 8}})])
-        await server.handleConnection(websocket)
+        with mock.patch.object(engine, "clearModelCache", recordingClear):
+            await server.handleConnection(websocket)
         self.assertEqual(websocket.messages[0]["type"], "trainStep")
+        self.assertEqual(slotCreated, [True])  # 断开时恰好清理一次，且清理前槽位确实存在
         self.assertNotIn("editor-closing", engine.modelCache)  # 断开后该连接的模型被释放
 
 

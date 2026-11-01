@@ -291,7 +291,7 @@ class BlueprintModel(nn.Module):
         self.optimizer.zero_grad()  # 清除上一轮梯度，避免梯度跨轮累积
         if not self.trainingInputs:
             for inputID in self.inputIDs:
-                with torch.random.fork_rng(devices=[]):  # 隔离全局随机状态，不影响预览的随机输入
+                with torch.random.fork_rng(devices=[]):  # 隔离CPU全局随机状态，不影响预览的随机输入；节点目前都在CPU上运行，将来在GPU上生成随机数时需要把CUDA设备加入devices
                     torch.manual_seed(getNodeSeed(inputID))  # 训练批次与权重一样按节点ID固定，重置训练后能完全复现同一条曲线
                     self.trainingInputs[inputID] = self.nodeModules[self.moduleKeys[inputID]]({}).get("out").detach()  # 第一步生成固定训练批次，后续重复使用
         nodeResults = {}  # 保存本轮所有端口值供后续节点和损失读取
