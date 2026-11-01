@@ -50,8 +50,12 @@ async def runInWorker(func, *args, **kwargs):
     """
     用法：result = await runInWorker(model.trainStep, 128)  # 计算期间事件循环继续处理其他连接和心跳
     """
+    checkStop()  # 服务关闭后到达的请求直接返回serverStopping，而不是线程池已关闭的RuntimeError
     loop = asyncio.get_running_loop()  # 结果回到调用方所在的事件循环
     return await loop.run_in_executor(computeExecutor, functools.partial(func, *args, **kwargs))  # 排队进入唯一计算线程
+
+
+sendTimeoutSeconds = 60  # 单条反馈的最长发送等待：慢客户端不能无限期占住全局唯一的计算线程
 
 
 # --- 在事件循环线程执行一次回调 ---
@@ -64,6 +68,7 @@ async def invokeCallback(callback, *args):
 # --- 从计算线程调用事件循环回调并等待完成 ---
 def callOnLoop(loop, callback, *args):
     future = asyncio.run_coroutine_threadsafe(invokeCallback(callback, *args), loop)  # 把回调交回WebSocket所在线程
+    startedAt = time.monotonic()  # 记录开始等待的时间
     while True:
         try:
             return future.result(timeout=1)  # 等待发送完成，保持逐节点反馈顺序和背压
@@ -71,6 +76,12 @@ def callOnLoop(loop, callback, *args):
             if loop.is_closed() or not loop.is_running():
                 future.cancel()  # 事件循环已经停止时不再无限等待
                 raise RuntimeError("事件循环已停止，无法继续发送节点结果")
+            if stopEvent.is_set():
+                future.cancel()  # 服务关闭时不再等待卡住的客户端
+                raise BlueprintError("serverStopping", "后端正在关闭，本次计算已中止")
+            if time.monotonic() - startedAt > sendTimeoutSeconds:
+                future.cancel()  # 客户端长时间不接收，放弃本轮计算，把计算线程让给其他连接
+                raise BlueprintError("clientTooSlow", f"前端超过{sendTimeoutSeconds}秒未接收节点结果，本次计算已中止")
 
 
 class BlueprintError(Exception):
@@ -500,6 +511,7 @@ def runSync(blueprint, onMessage, onError, inputs=None, maxValues=65536, compile
         return {"status": status, "outputs": serializeValue(modelOutputs, maxValues), "outputNodeIds": completedOutputIDs, "errorCount": errorCount, "durationMs": durationMs}  # 返回本轮完整终态
     except Exception as error:
         blueprintError = error if isinstance(error, BlueprintError) else BlueprintError("blueprintFailed", str(error))  # 未分类异常统一收口
-        onError(blueprintError.details.get("nodeId", ""), blueprintError.toData())  # 流式反馈结构化错误，确保错误先于终态返回
+        if blueprintError.code != "clientTooSlow":
+            onError(blueprintError.details.get("nodeId", ""), blueprintError.toData())  # 流式反馈结构化错误，确保错误先于终态返回；不接收数据的客户端不再重复等待
         durationMs = (time.perf_counter() - startedAt) * 1000  # 失败同样报告已消耗时间
         return {"status": "failed", "error": blueprintError.toData(), "outputNodeIds": [], "errorCount": 1, "durationMs": durationMs}  # 由调用方仍发送一次 blueprintComplete

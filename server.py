@@ -172,6 +172,7 @@ async def serve(host="127.0.0.1", port=8765):
     loop = asyncio.get_running_loop()  # 信号和热重载都挂在当前事件循环
     stopSignal = asyncio.Event()  # Ctrl+C 或 SIGTERM 触发
     installStopHandlers(loop, stopSignal)
+    registry.publishedFrontend = registry.getAllForFrontend()  # 启动时先发布完整注册表，此后getRegistry只读快照，第一次热重载也不会读到半成品
     async with websockets.serve(handleConnection, host, port) as service:
         boundPort = service.sockets[0].getsockname()[1]  # port=0 时读取系统实际分配的端口
         print(f"WebSocket服务已启动: ws://{host}:{boundPort}（按 Ctrl+C 退出）")  # 握手监听成功
@@ -183,7 +184,8 @@ async def serve(host="127.0.0.1", port=8765):
         engine.requestStop()  # 正在执行的计算在下一个节点检查点中止，并照常给前端发送终态
         hotReloadTask.cancel()  # 停止监听节点文件
         await asyncio.gather(hotReloadTask, return_exceptions=True)  # 等待监听任务真正结束
-        await asyncio.to_thread(engine.computeExecutor.shutdown, wait=True, cancel_futures=True)  # 丢弃排队任务并等待当前计算退出；事件循环继续运行，中止反馈才能发出去
+        await asyncio.to_thread(engine.computeExecutor.shutdown, wait=True)  # 等待当前和排队任务退出：它们会在第一个检查点以serverStopping结束并照常发送终态；不能取消排队任务，否则等待它的连接收不到终态、也不会被关闭
+
         print(f"计算线程已停止，正在关闭 {len(clients)} 个连接...")
     print("后端已退出")  # 离开 async with 时服务端以 1001 关闭全部连接并释放端口
 
