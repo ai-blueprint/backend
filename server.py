@@ -164,7 +164,11 @@ def installStopHandlers(loop, stopSignal):
         try:
             loop.add_signal_handler(signalNumber, onStopSignal)  # Unix 事件循环原生支持
         except (NotImplementedError, RuntimeError, ValueError):
-            signal.signal(signalNumber, lambda *_: loop.call_soon_threadsafe(onStopSignal))  # Windows 事件循环不支持时退回标准信号处理
+            try:
+                signal.signal(signalNumber, lambda *_: loop.call_soon_threadsafe(onStopSignal))  # Windows 事件循环不支持时退回标准信号处理
+            except ValueError:
+                print("当前不在主线程，无法安装 Ctrl+C 处理，服务仍会正常运行")  # 被嵌入到其他程序的线程里运行时不让服务启动失败
+                return
 
 
 # --- 运行服务直到收到退出信号 ---
