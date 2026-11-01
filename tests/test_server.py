@@ -19,8 +19,10 @@ from test_training import trainingBlueprint  # 复用训练用例的预测加目
 
 
 class FakeWebSocket:
-    def __init__(self):
+    def __init__(self, connectionId=None):
         self.messages = []  # 按发送顺序保存服务端JSON文本
+        if connectionId is not None:
+            self.id = connectionId  # 模拟websockets连接的唯一id，用于独立模型缓存
 
     async def send(self, message):
         self.messages.append(json.loads(message))  # 立即解析以便断言协议字段
@@ -109,10 +111,10 @@ class ServerProtocolTest(unittest.IsolatedAsyncioTestCase):
                 compileStarted = threading.Event()  # 确认慢编译已经占住计算线程
                 originalCompile = engine.compileBlueprintCached
 
-                def slowCompile(blueprint):
+                def slowCompile(blueprint, *args, **kwargs):
                     compileStarted.set()
                     releaseCompile.wait(timeout=10)  # 模拟长时间编译或计算
-                    return originalCompile(blueprint)
+                    return originalCompile(blueprint, *args, **kwargs)
 
                 with mock.patch.object(engine, "compileBlueprintCached", slowCompile):
                     computeTask = asyncio.create_task(server.handleMessage(computeWebSocket, json.dumps({"type": messageType, "id": "slow", "data": data})))
@@ -158,6 +160,47 @@ class ServerProtocolTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(trainWebSocket.messages[-1]["error"]["code"], "serverStopping")
         finally:
             engine.stopEvent.clear()  # 恢复服务状态，避免影响其他用例
+
+    async def test_each_connection_trains_its_own_model(self):
+        engine.clearModelCache()
+        first, second = FakeWebSocket("editor-1"), FakeWebSocket("editor-2")  # 两个编辑器打开同一张蓝图
+        request = lambda requestId: json.dumps({"type": "trainStep", "id": requestId, "data": {"blueprint": trainingBlueprint(), "maxValues": 8}})
+        await server.handleMessage(first, request("a1"))
+        await server.handleMessage(first, request("a2"))
+        await server.handleMessage(second, request("b1"))  # 另一个连接从头训练，不接着用第一个连接的权重
+        losses = lambda websocket: [message["data"]["loss"] for message in websocket.messages if message["type"] == "trainStep"]
+        self.assertLess(losses(first)[1], losses(first)[0])  # 第一个连接确实在持续训练
+        self.assertEqual(losses(second)[0], losses(first)[0])  # 第二个连接的第一步与第一个连接的第一步完全相同
+
+        await server.handleMessage(second, json.dumps({"type": "resetTraining", "id": "reset", "data": {}}))  # 只重置第二个连接
+        await server.handleMessage(first, request("a3"))
+        self.assertLess(losses(first)[2], losses(first)[1])  # 第一个连接的训练不受另一个连接重置影响
+
+        await server.handleMessage(first, json.dumps({"type": "resetTraining", "id": "reset", "data": {}}))
+        await server.handleMessage(first, request("a4"))
+        self.assertEqual(losses(first)[3], losses(first)[0])  # 重置后训练批次和权重都按节点ID固定，第一步完全复现
+        engine.clearModelCache()
+
+    async def test_disconnect_releases_connection_model(self):
+        engine.clearModelCache()
+
+        class ClosingWebSocket(FakeWebSocket):
+            def __init__(self, connectionId, messages):
+                super().__init__(connectionId)
+                self.incoming = messages
+
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                if not self.incoming:
+                    raise StopAsyncIteration  # 消息发完即模拟连接关闭
+                return self.incoming.pop(0)
+
+        websocket = ClosingWebSocket("editor-closing", [json.dumps({"type": "trainStep", "id": "t", "data": {"blueprint": trainingBlueprint(), "maxValues": 8}})])
+        await server.handleConnection(websocket)
+        self.assertEqual(websocket.messages[0]["type"], "trainStep")
+        self.assertNotIn("editor-closing", engine.modelCache)  # 断开后该连接的模型被释放
 
 
 if __name__ == "__main__":

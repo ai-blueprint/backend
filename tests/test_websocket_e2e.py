@@ -83,7 +83,7 @@ class GracefulShutdownTest(unittest.IsolatedAsyncioTestCase):
         await self.assertExitsCleanly()
 
     async def test_ctrl_c_with_running_and_queued_requests(self):
-        slowCompile = "import engine, time\noriginalCompile = engine.compileBlueprintCached\nengine.compileBlueprintCached = lambda blueprint: (time.sleep(3), originalCompile(blueprint))[1]"  # 每次编译前等待3秒，制造正在计算和排队中的请求
+        slowCompile = "import engine, time\noriginalCompile = engine.compileBlueprintCached\nengine.compileBlueprintCached = lambda blueprint, *args, **kwargs: (time.sleep(3), originalCompile(blueprint, *args, **kwargs))[1]"  # 每次编译前等待3秒，制造正在计算和排队中的请求
         port = await self.startBackend(slowCompile)
         request = {"type": "runBlueprint", "data": {"blueprint": linearBlueprint()}}
 

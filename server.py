@@ -61,6 +61,11 @@ def getErrorData(error, code="requestFailed"):
     return {"code": code, "message": str(error), "details": {}}  # 未分类错误使用统一结构
 
 
+# --- 读取连接的模型缓存槽位 ---
+def getCacheId(ws):
+    return getattr(ws, "id", None)  # websockets为每个连接分配唯一id；测试用的假连接没有id时共用默认槽位
+
+
 # --- 读取并校验请求data ---
 def getRequestData(requestData):
     messageData = requestData.get("data")  # 所有业务参数位于固定data字段
@@ -109,15 +114,16 @@ async def handleMessage(ws, message):
             async def onNodeError(nodeId, nodeError):
                 await sendError(ws, "nodeError", messageId, {"nodeId": nodeId, **nodeError})  # 错误直接关联画布节点
 
-            result = await engine.run(blueprint, onNodeResult, onNodeError, messageData.get("inputs"), messageData.get("maxValues", 65536))  # InputNode缺省生成指定形状随机张量
+            result = await engine.run(blueprint, onNodeResult, onNodeError, messageData.get("inputs"), messageData.get("maxValues", 65536), cacheId=getCacheId(ws))  # InputNode缺省生成指定形状随机张量
             await sendMessage(ws, "blueprintComplete", messageId, result)  # 整张蓝图只发送一次终态
             return
 
         if messageType == "trainStep":
             blueprint = getBlueprint(messageData)  # 单步训练使用当前完整蓝图
+            cacheId = getCacheId(ws)  # 每个连接独立训练，互不覆盖
 
             def trainSync():
-                model = engine.compileBlueprintCached(blueprint)  # 蓝图不变时保留权重和优化器状态
+                model = engine.compileBlueprintCached(blueprint, cacheId)  # 同一连接蓝图不变时保留权重和优化器状态
                 return model.trainStep(messageData.get("maxValues", 65536), messageData.get("optimizer", "sgd"), messageData.get("learningRate", 0.01), messageData.get("gradientClip", 0.0))  # 使用用户超参数执行一次前向、反向和权重更新
 
             result = await engine.runInWorker(trainSync)  # 编译和训练在计算线程执行，事件循环继续响应其他请求
@@ -125,7 +131,7 @@ async def handleMessage(ws, message):
             return
 
         if messageType == "resetTraining":
-            await engine.runInWorker(engine.clearModelCache)  # 排在已提交的计算之后清空缓存，避免与在途训练交错
+            await engine.runInWorker(engine.clearModelCache, getCacheId(ws), allSlots=False)  # 只重置当前连接；排在已提交的计算之后，避免与在途训练交错
             await sendMessage(ws, "resetTraining", messageId, {"status": "reset"})  # 告知前端训练已经回到初始状态
             return
 
@@ -149,6 +155,10 @@ async def handleConnection(ws):
         print(f"连接结束: {error}")  # 记录真实连接协议或网络异常
     finally:
         clients.discard(ws)  # 无论何种原因都释放连接
+        try:
+            await engine.runInWorker(engine.clearModelCache, getCacheId(ws), allSlots=False)  # 释放该连接的模型；排在它的在途计算之后，不会被重新写回
+        except Exception:
+            pass  # 服务关闭时计算线程已停止，进程退出会一并释放
         print(f"前端已断开，当前连接数: {len(clients)}")  # 记录连接收口
 
 

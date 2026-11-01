@@ -291,7 +291,9 @@ class BlueprintModel(nn.Module):
         self.optimizer.zero_grad()  # 清除上一轮梯度，避免梯度跨轮累积
         if not self.trainingInputs:
             for inputID in self.inputIDs:
-                self.trainingInputs[inputID] = self.nodeModules[self.moduleKeys[inputID]]({}).get("out").detach()  # 第一步生成固定训练批次，后续重复使用
+                with torch.random.fork_rng(devices=[]):  # 隔离全局随机状态，不影响预览的随机输入
+                    torch.manual_seed(getNodeSeed(inputID))  # 训练批次与权重一样按节点ID固定，重置训练后能完全复现同一条曲线
+                    self.trainingInputs[inputID] = self.nodeModules[self.moduleKeys[inputID]]({}).get("out").detach()  # 第一步生成固定训练批次，后续重复使用
         nodeResults = {}  # 保存本轮所有端口值供后续节点和损失读取
         for nodeID in self.sortedIDs:
             checkStop()  # 服务关闭时放弃本轮训练，不执行反向传播和权重更新
@@ -341,7 +343,7 @@ def compileBlueprint(blueprint):
         return BlueprintModel(blueprint)  # 编译期间阻止插件重载替换注册项
 
 
-modelCache = {"key": None, "model": None}  # 只缓存最近一张蓝图的编译结果，蓝图不变时复用同一组权重
+modelCache = {}  # 缓存槽位ID -> {"key", "model"}：每个编辑器连接各缓存最近一张蓝图，互不覆盖权重和优化器状态；只在计算线程读写
 
 
 # --- 计算蓝图业务内容的缓存键 ---
@@ -355,23 +357,30 @@ def getModelCacheKey(blueprint):
 
 
 # --- 蓝图未变化时复用已编译模型 ---
-def compileBlueprintCached(blueprint):
+def compileBlueprintCached(blueprint, cacheId=None):
     """
-    用法：model = compileBlueprintCached(blueprint)  # 连续运行同一蓝图时保持权重不变
+    用法：model = compileBlueprintCached(blueprint, ws.id)  # 同一连接连续运行同一蓝图时保持权重不变
+    cacheId 区分不同编辑器连接；省略时使用默认槽位。
     """
     cacheKey = getModelCacheKey(blueprint)  # 只依据业务内容判断蓝图是否变化
-    if modelCache["key"] == cacheKey and modelCache["model"] is not None:
-        return modelCache["model"]  # 蓝图未变时返回同一模型，随机的只有输入张量
+    slot = modelCache.get(cacheId)  # 读取当前连接自己的缓存槽位
+    if slot and slot["key"] == cacheKey:
+        return slot["model"]  # 蓝图未变时返回同一模型，随机的只有输入张量
     model = compileBlueprint(blueprint)  # 蓝图变化后重新编译并重新初始化权重
-    modelCache["key"] = cacheKey  # 记录当前蓝图键
-    modelCache["model"] = model  # 替换唯一缓存槽位
+    modelCache[cacheId] = {"key": cacheKey, "model": model}  # 只替换当前连接的槽位
     return model  # 返回新编译模型
 
 
 # --- 清空模型缓存 ---
-def clearModelCache():
-    modelCache["key"] = None  # 节点热重载后旧模型持有过期节点类
-    modelCache["model"] = None  # 释放模型引用，下一次运行重新编译
+def clearModelCache(cacheId=None, allSlots=True):
+    """
+    用法：clearModelCache()  # 清空全部连接的缓存（节点热重载后旧模型持有过期节点类）
+         clearModelCache(ws.id, allSlots=False)  # 只重置一个连接的训练或在断开时释放
+    """
+    if allSlots:
+        modelCache.clear()  # 释放全部模型引用，下一次运行重新编译
+    else:
+        modelCache.pop(cacheId, None)  # 只释放指定连接的模型
 
 
 # --- 将 JSON 输入规格转换为张量 ---
@@ -455,7 +464,7 @@ def serializeValue(value, maxValues=65536):
 
 
 # --- 异步运行预览并反馈节点结果 ---
-async def run(blueprint, onMessage, onError, inputs=None, maxValues=65536, compiledModel=None):
+async def run(blueprint, onMessage, onError, inputs=None, maxValues=65536, compiledModel=None, cacheId=None):
     """
     编译和逐节点计算都在计算线程执行，回调仍在调用方的事件循环里运行。
     用法：result = await run(blueprint, onMessage, onError)
@@ -463,14 +472,14 @@ async def run(blueprint, onMessage, onError, inputs=None, maxValues=65536, compi
     loop = asyncio.get_running_loop()  # 节点反馈必须回到当前WebSocket事件循环发送
     notifyMessage = functools.partial(callOnLoop, loop, onMessage)  # 计算线程内同步等待结果发送完成
     notifyError = functools.partial(callOnLoop, loop, onError)  # 错误反馈同样回到事件循环
-    return await runInWorker(runSync, blueprint, notifyMessage, notifyError, inputs, maxValues, compiledModel)  # 计算期间事件循环继续响应其他请求
+    return await runInWorker(runSync, blueprint, notifyMessage, notifyError, inputs, maxValues, compiledModel, cacheId)  # 计算期间事件循环继续响应其他请求
 
 
 # --- 同步运行预览并反馈节点结果 ---
-def runSync(blueprint, onMessage, onError, inputs=None, maxValues=65536, compiledModel=None):
+def runSync(blueprint, onMessage, onError, inputs=None, maxValues=65536, compiledModel=None, cacheId=None):
     startedAt = time.perf_counter()  # 蓝图总耗时从编译前开始计算
     try:
-        model = compiledModel or compileBlueprintCached(blueprint)  # 蓝图未变时复用同一模型，让连续观察保持权重稳定
+        model = compiledModel or compileBlueprintCached(blueprint, cacheId)  # 同一连接蓝图未变时复用同一模型，让连续观察保持权重稳定
         model.eval()  # 预览默认关闭 dropout 等训练随机行为
         modelInputs = validateModelInputs(model, parseInputs(inputs))  # 输入名称必须对应显式InputNode
         nodeResults = {}  # 当前轮次保存已经传播完成的节点端口值
