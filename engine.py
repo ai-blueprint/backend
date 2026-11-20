@@ -16,6 +16,7 @@ import threading  # 线程信号能力，用于通知计算线程尽快结束
 import zlib  # 稳定哈希能力，用于把节点ID转换为固定初始化种子
 import time  # 单调计时能力，用于记录节点和蓝图耗时
 from collections import defaultdict  # 边分组能力，用于快速收集节点输入
+from uuid import uuid4  # 为每个模型实例生成独立标识
 
 import torch  # 张量能力，用于模型执行和结果序列化
 import torch.nn as nn  # 神经网络容器，用于持久注册蓝图参数
@@ -31,7 +32,24 @@ import torch._dynamo  # noqa: E402,F401  首次创建优化器会导入它（约
 
 
 computeExecutor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="blueprint-compute")  # 唯一计算线程：事件循环保持响应，模型缓存和注册表重载也因此天然串行
+computeExecutorActive = True  # 标记当前计算线程池是否可接受任务
 stopEvent = threading.Event()  # 服务关闭信号：计算线程在每个节点之间检查，单个PyTorch算子无法中途打断
+
+
+def startComputeRuntime():
+    global computeExecutor, computeExecutorActive
+    if not computeExecutorActive:
+        computeExecutor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="blueprint-compute")  # 新服务实例需要可用的计算线程
+        computeExecutorActive = True  # 标记线程池已重新启用
+    stopEvent.clear()  # 服务可重新接受计算任务
+
+
+def shutdownComputeRuntime():
+    global computeExecutorActive
+    if not computeExecutorActive:
+        return  # 重复清理时线程池已经关闭
+    computeExecutor.shutdown(wait=True)  # 等待所有已提交计算正常退出
+    computeExecutorActive = False  # 下次服务启动时创建新线程池
 
 
 # --- 通知计算线程停止 ---
@@ -179,6 +197,9 @@ class BlueprintModel(nn.Module):
         self.lastNodeResults = {}  # 保存最近一次完整端口结果，预览回调和调试可读取
         self.lastNodeDurations = {}  # 保存最近一次逐节点耗时，结构化反馈统一消费
         self.trainingInputs = {}  # 保存训练批次，连续训练时每一步使用同一组输入和目标
+        self.trainingModelId = uuid4().hex  # 模型重建后前端用新标识开启一条训练曲线
+        self.trainingSeed = getNodeSeed(getModelCacheKey(blueprint))  # 同一张蓝图重建后获得相同的训练随机序列
+        self.trainingStep = 0  # 按训练步推进随机序列，不依赖其他连接的执行顺序
         trainableParameters = [parameter for nodeID in self.sortedIDs if nodeID not in self.targetNodeIDs for parameter in self.nodeModules[self.moduleKeys[nodeID]].parameters() if parameter.requires_grad]  # 只收集预测分支的可学习参数
         self.optimizerConfig = {"name": "sgd", "learningRate": 0.01, "gradientClip": 0.0}  # 保存当前训练超参数，蓝图变化时重新使用默认值
         self.optimizer = torch.optim.SGD(trainableParameters, lr=0.01) if trainableParameters else None  # 无可学习参数的普通蓝图不创建空优化器
@@ -281,6 +302,16 @@ class BlueprintModel(nn.Module):
 
     # --- 执行一次带目标值的训练步骤 ---
     def trainStep(self, maxValues=65536, optimizerName="sgd", learningRate=0.01, gradientClip=0.0):
+        seed = (self.trainingSeed + self.trainingStep) & 0xFFFFFFFF  # 每一步使用可重现的独立随机种子
+        with torch.random.fork_rng(devices=[]):  # 保存并恢复CPU随机状态，不影响其他连接或预览
+            torch.random.default_generator.manual_seed(seed)  # 只设置CPU生成器，保持当前CPU节点运行范围
+            result = self._trainStep(maxValues, optimizerName, learningRate, gradientClip)  # 在隔离随机状态下执行完整前向和反向
+        self.trainingStep += 1  # 仅成功训练后推进随机序列
+        return result  # 返回本步训练结果
+
+
+    # --- 执行隔离随机状态下的一次训练 ---
+    def _trainStep(self, maxValues=65536, optimizerName="sgd", learningRate=0.01, gradientClip=0.0):
         if self.optimizer is None:
             raise BlueprintError("noTrainableParameters", "蓝图中没有可训练参数，请加入Linear等可学习节点")  # 没有参数时无法执行权重更新
         self.configureOptimizer(optimizerName, learningRate)  # 应用用户本轮选择的优化器和学习率

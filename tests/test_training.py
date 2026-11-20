@@ -82,6 +82,29 @@ class TrainingStepTest(unittest.TestCase):
 
         self.assertLess(losses[-1], losses[0])  # 固定样本下训练应有可观察的下降趋势
 
+    def test_dropout_rng_is_repeatable_and_does_not_leak_between_models(self):
+        blueprint = trainingBlueprint()  # 从标准预测和目标图开始
+        blueprint["nodes"].insert(2, {"id": "dropout-1", "data": {"opcode": "dropout", "params": {"p": 0.5}}})  # 让训练前向传播消耗随机数
+        blueprint["edges"][1]["target"] = "dropout-1"  # 预测结果经过随机失活
+        blueprint["edges"][1]["targetHandle"] = "x"  # 失活节点接收线性层输出
+        blueprint["edges"].append({"id": "edge-dropout", "source": "dropout-1", "sourceHandle": "out", "target": "output-1", "targetHandle": "in"})  # 失活结果进入预测端口
+        firstModel = engine.compileBlueprint(blueprint)  # 创建第一个独立模型
+        secondModel = engine.compileBlueprint(blueprint)  # 同蓝图的另一个模型应使用相同随机序列
+
+        firstLosses = [firstModel.trainStep(maxValues=8)["loss"] for _ in range(3)]  # 连续执行三步
+        torch.rand(64)  # 其他运算消费全局随机数不能改变模型后续掩码
+        secondLosses = [secondModel.trainStep(maxValues=8)["loss"] for _ in range(3)]  # 交错执行第二个模型
+        self.assertEqual(secondLosses, firstLosses)  # 相同初态的模型具有一致且互相隔离的随机序列
+
+        resetModel = engine.compileBlueprint(blueprint)  # 重建模型模拟用户重置
+        self.assertEqual(resetModel.trainStep(maxValues=8)["loss"], firstLosses[0])  # 重置后第一步可复现
+
+        torch.manual_seed(2718)  # 固定服务外部的CPU随机状态
+        expectedNextValue = torch.rand(1)  # 记录训练若不污染全局状态时的下一个值
+        torch.manual_seed(2718)  # 还原全局随机状态
+        resetModel.trainStep(maxValues=8)  # 训练随机数应隔离在模型内部
+        self.assertTrue(torch.equal(torch.rand(1), expectedNextValue))  # 外部随机序列不受训练影响
+
     def test_training_hyperparameters_are_applied(self):
         model = engine.compileBlueprintCached(trainingBlueprint())  # 编译可训练蓝图
 
@@ -93,6 +116,29 @@ class TrainingStepTest(unittest.TestCase):
 
 
 class TrainingProtocolTest(unittest.IsolatedAsyncioTestCase):
+    async def test_training_identity_follows_model_lifetime(self):
+        first, second = FakeWebSocket(), FakeWebSocket()  # 模拟两个独立编辑器连接
+        first.id, second.id = "first-model", "second-model"  # 使用真实服务读取的连接标识
+        self.addCleanup(engine.clearModelCache)  # 即使断言失败也释放模型
+
+        async def train(websocket):
+            await server.handleMessage(websocket, json.dumps({"type": "trainStep", "data": {"blueprint": trainingBlueprint(), "maxValues": 8}}))
+            data = websocket.messages[-1]["data"]
+            self.assertIn("trainingModelId", data)  # 训练快照必须标明所属模型
+            modelId = data["trainingModelId"]  # 读取本轮响应的模型身份
+            self.assertIsInstance(modelId, str)  # 身份可通过 JSON 字符串传输
+            self.assertTrue(modelId)  # 空标识无法区分模型生命周期
+            return modelId  # 返回供后续生命周期比较
+
+        firstModelId = await train(first)  # 首次请求建立第一个连接的模型
+        self.assertEqual(await train(first), firstModelId)  # 同一连接继续复用当前模型
+        secondModelId = await train(second)  # 另一连接应建立独立模型
+        self.assertNotEqual(secondModelId, firstModelId)  # 不同模型不能共用身份
+
+        await server.handleMessage(first, json.dumps({"type": "resetTraining", "data": {}}))
+        self.assertNotEqual(await train(first), firstModelId)  # 重置后新模型需使用新身份
+        self.assertEqual(await train(second), secondModelId)  # 重置一个连接不影响另一个
+
     async def test_train_step_protocol_returns_training_snapshot(self):
         websocket = FakeWebSocket()  # 收集训练协议返回的单步快照
 

@@ -124,7 +124,8 @@ async def handleMessage(ws, message):
 
             def trainSync():
                 model = engine.compileBlueprintCached(blueprint, cacheId)  # 同一连接蓝图不变时保留权重和优化器状态
-                return model.trainStep(messageData.get("maxValues", 65536), messageData.get("optimizer", "sgd"), messageData.get("learningRate", 0.01), messageData.get("gradientClip", 0.0))  # 使用用户超参数执行一次前向、反向和权重更新
+                result = model.trainStep(messageData.get("maxValues", 65536), messageData.get("optimizer", "sgd"), messageData.get("learningRate", 0.01), messageData.get("gradientClip", 0.0))  # 执行一次前向、反向和权重更新
+                return {"trainingModelId": model.trainingModelId, **result}  # 同一模型的训练结果归入同一条曲线
 
             result = await engine.runInWorker(trainSync)  # 编译和训练在计算线程执行，事件循环继续响应其他请求
             await sendMessage(ws, "trainStep", messageId, result)  # 返回loss、预测值、目标值和节点训练快照
@@ -164,6 +165,9 @@ async def handleConnection(ws):
 
 # --- 安装 Ctrl+C 和终止信号处理 ---
 def installStopHandlers(loop, stopSignal):
+    originalHandlers = {}  # 保存嵌入进程原有的信号处理行为
+    installedSignals = set()  # 记录本服务实际接管的信号
+
     def onStopSignal():
         if stopSignal.is_set():
             print("再次收到退出信号，强制退出")  # 单个超大算子迟迟不结束时给用户留出口
@@ -171,37 +175,55 @@ def installStopHandlers(loop, stopSignal):
         stopSignal.set()  # 第一次信号只通知主流程开始优雅关闭
 
     for signalNumber in (signal.SIGINT, signal.SIGTERM):
+        originalHandlers[signalNumber] = signal.getsignal(signalNumber)  # 服务返回后恢复调用方处理器
         try:
             loop.add_signal_handler(signalNumber, onStopSignal)  # Unix 事件循环原生支持
+            installedSignals.add(signalNumber)  # 记录本服务安装的循环处理器
         except (NotImplementedError, RuntimeError, ValueError):
             try:
                 signal.signal(signalNumber, lambda *_: loop.call_soon_threadsafe(onStopSignal))  # Windows 事件循环不支持时退回标准信号处理
+                installedSignals.add(signalNumber)  # 记录本服务安装的系统处理器
             except ValueError:
                 print("当前不在主线程，无法安装 Ctrl+C 处理，服务仍会正常运行")  # 被嵌入到其他程序的线程里运行时不让服务启动失败
-                return
+
+    def restoreStopHandlers():
+        for signalNumber in installedSignals:
+            try:
+                loop.remove_signal_handler(signalNumber)  # Unix上移除仍绑定到本事件循环的处理器
+            except (NotImplementedError, RuntimeError, ValueError):
+                pass  # Windows回退处理器没有事件循环级绑定可移除
+            signal.signal(signalNumber, originalHandlers[signalNumber])  # 恢复服务启动前的信号处理器
+
+    return restoreStopHandlers
 
 
 # --- 运行服务直到收到退出信号 ---
 async def serve(host="127.0.0.1", port=8765):
+    engine.startComputeRuntime()  # 支持同一进程顺序重启服务
     loop = asyncio.get_running_loop()  # 信号和热重载都挂在当前事件循环
     stopSignal = asyncio.Event()  # Ctrl+C 或 SIGTERM 触发
-    installStopHandlers(loop, stopSignal)
-    registry.publishedFrontend = registry.getAllForFrontend()  # 启动时先发布完整注册表，此后getRegistry只读快照，第一次热重载也不会读到半成品
-    async with websockets.serve(handleConnection, host, port) as service:
-        boundPort = service.sockets[0].getsockname()[1]  # port=0 时读取系统实际分配的端口
-        print(f"WebSocket服务已启动: ws://{host}:{boundPort}（按 Ctrl+C 退出）")  # 握手监听成功
-        import plugin_hot_reload  # 节点文件热重载作为可拔插开发能力
-        hotReloadTask = plugin_hot_reload.mountHotReload(loop, broadcast)  # 节点变化后广播新注册表
-        await stopSignal.wait()  # 保持服务常驻，直到收到退出信号
+    restoreStopHandlers = installStopHandlers(loop, stopSignal)
+    try:
+        registry.publishedFrontend = registry.getAllForFrontend()  # 启动时先发布完整注册表，此后getRegistry只读快照，第一次热重载也不会读到半成品
+        async with websockets.serve(handleConnection, host, port) as service:
+            boundPort = service.sockets[0].getsockname()[1]  # port=0 时读取系统实际分配的端口
+            print(f"WebSocket服务已启动: ws://{host}:{boundPort}（按 Ctrl+C 退出）")  # 握手监听成功
+            import plugin_hot_reload  # 节点文件热重载作为可拔插开发能力
+            hotReloadTask = plugin_hot_reload.mountHotReload(loop, broadcast)  # 节点变化后广播新注册表
+            await stopSignal.wait()  # 保持服务常驻，直到收到退出信号
 
-        print("收到退出信号，正在停止计算线程...（再次按 Ctrl+C 强制退出）")
-        engine.requestStop()  # 正在执行的计算在下一个节点检查点中止，并照常给前端发送终态
-        hotReloadTask.cancel()  # 停止监听节点文件
-        await asyncio.gather(hotReloadTask, return_exceptions=True)  # 等待监听任务真正结束
-        await asyncio.to_thread(engine.computeExecutor.shutdown, wait=True)  # 等待当前和排队任务退出：它们会在第一个检查点以serverStopping结束并照常发送终态；不能取消排队任务，否则等待它的连接收不到终态、也不会被关闭
+            print("收到退出信号，正在停止计算线程...（再次按 Ctrl+C 强制退出）")
+            engine.requestStop()  # 正在执行的计算在下一个节点检查点中止，并照常给前端发送终态
+            hotReloadTask.cancel()  # 停止监听节点文件
+            await asyncio.gather(hotReloadTask, return_exceptions=True)  # 等待监听任务真正结束
+            await asyncio.to_thread(engine.shutdownComputeRuntime)  # 等待所有计算退出，同时允许后续服务实例重新创建线程池
 
-        print(f"计算线程已停止，正在关闭 {len(clients)} 个连接...")
-    print("后端已退出")  # 离开 async with 时服务端以 1001 关闭全部连接并释放端口
+            print(f"计算线程已停止，正在关闭 {len(clients)} 个连接...")
+        print("后端已退出")  # 离开 async with 时服务端以 1001 关闭全部连接并释放端口
+    finally:
+        engine.requestStop()  # 异常退出也阻止后台任务继续提交计算
+        await asyncio.to_thread(engine.shutdownComputeRuntime)  # 幂等关闭线程池，避免异常路径遗留工作线程
+        restoreStopHandlers()  # 服务返回或异常退出时恢复调用进程的信号环境
 
 
 # --- 启动本地实验服务 ---
