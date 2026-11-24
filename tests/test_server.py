@@ -1,16 +1,28 @@
+import asyncio  # 并发能力，用于同时发出慢计算和注册表请求
 import json  # 消息解析能力，用于检查假WebSocket收到的协议对象
 import logging  # 日志记录能力，用于验证端口探测过滤
+import tempfile  # 临时目录能力，用于隔离插件根目录
+import threading  # 线程同步能力，用于精确控制慢计算何时结束
 import unittest  # 异步单元测试能力，用于覆盖WebSocket入口
+from pathlib import Path  # 路径能力，用于替换插件根目录
+from unittest import mock  # 替换能力，用于把编译变成可控的慢操作
 
 from websockets.exceptions import InvalidMessage  # 握手异常类型，用于模拟空TCP探测
 
+import engine  # 执行引擎，用于替换编译函数和清理模型缓存
+import plugin_hot_reload  # 热重载入口，用于验证计算线程中的注册表重建
+import plugins  # 插件加载器，用于隔离热重载用例的插件目录
+import registry  # 注册表，用于检查发布的前端快照
 import server  # WebSocket触发入口，是本组测试主体
 from blueprints import linearBlueprint  # 共享最小蓝图用于成功和失败终态测试
+from test_training import trainingBlueprint  # 复用训练用例的预测加目标蓝图
 
 
 class FakeWebSocket:
-    def __init__(self):
+    def __init__(self, connectionId=None):
         self.messages = []  # 按发送顺序保存服务端JSON文本
+        if connectionId is not None:
+            self.id = connectionId  # 模拟websockets连接的唯一id，用于独立模型缓存
 
     async def send(self, message):
         self.messages.append(json.loads(message))  # 立即解析以便断言协议字段
@@ -88,6 +100,117 @@ class ServerProtocolTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(websocket.messages), 1)
         self.assertEqual(websocket.messages[0]["type"], "blueprintComplete")
         self.assertEqual(websocket.messages[0]["data"]["status"], "failed")
+
+    async def test_slow_compute_does_not_block_other_requests(self):
+        for messageType, data in (("runBlueprint", {"blueprint": linearBlueprint()}), ("trainStep", {"blueprint": trainingBlueprint(), "maxValues": 8})):
+            with self.subTest(messageType=messageType):
+                engine.clearModelCache()  # 强制本轮重新编译，进入被替换的慢编译
+                computeWebSocket = FakeWebSocket()  # 收集慢计算请求的反馈
+                registryWebSocket = FakeWebSocket()  # 另一个编辑器连接
+                releaseCompile = threading.Event()  # 由测试决定慢编译何时结束
+                compileStarted = threading.Event()  # 确认慢编译已经占住计算线程
+                originalCompile = engine.compileBlueprintCached
+
+                def slowCompile(blueprint, *args, **kwargs):
+                    compileStarted.set()
+                    releaseCompile.wait(timeout=10)  # 模拟长时间编译或计算
+                    return originalCompile(blueprint, *args, **kwargs)
+
+                with mock.patch.object(engine, "compileBlueprintCached", slowCompile):
+                    computeTask = asyncio.create_task(server.handleMessage(computeWebSocket, json.dumps({"type": messageType, "id": "slow", "data": data})))
+                    try:
+                        await asyncio.to_thread(compileStarted.wait, 10)  # 等待计算线程真正开始执行
+                        await asyncio.wait_for(server.handleMessage(registryWebSocket, json.dumps({"type": "getRegistry", "id": "registry-1"})), timeout=2)  # 计算进行中注册表请求必须立即返回
+                        self.assertFalse(computeTask.done())  # 慢计算此时确实仍在进行
+                    finally:
+                        releaseCompile.set()  # 断言失败也要放行计算线程，避免后续用例排队超时
+                        await asyncio.wait_for(computeTask, timeout=10)
+
+                self.assertEqual(registryWebSocket.messages[0]["type"], "getRegistry")
+                self.assertIn("nodes", registryWebSocket.messages[0]["data"])
+                self.assertEqual(computeWebSocket.messages[-1]["type"], "blueprintComplete" if messageType == "runBlueprint" else "trainStep")
+                self.assertNotIn("error", computeWebSocket.messages[-1])
+
+    async def test_hot_reload_rebuilds_registry_in_compute_thread(self):
+        statusSnapshot = dict(plugins.pluginStatuses)  # 热重载会改写插件状态，用例结束后恢复
+        try:
+            with tempfile.TemporaryDirectory() as emptyPluginsRoot, mock.patch.object(plugins, "pluginsRoot", Path(emptyPluginsRoot)):  # 不加载开发者本机插件，结果与环境无关
+                messageType, messageData = await engine.runInWorker(plugin_hot_reload.reloadRegistry)  # 与真实热重载一样在计算线程执行
+            self.assertEqual(messageType, "registryUpdated")
+            self.assertIs(registry.getPublishedForFrontend(), messageData)  # 事件循环读取的是重建完成后整体发布的快照
+            self.assertIn("linear", messageData["nodes"])
+        finally:
+            registry.publishedFrontend = None  # 恢复为直接读取注册表，避免影响其他用例
+            plugins.pluginStatuses.clear(); plugins.pluginStatuses.update(statusSnapshot)
+
+    async def test_stop_signal_aborts_run_and_training(self):
+        engine.clearModelCache()  # 从编译阶段开始验证检查点
+        try:
+            engine.requestStop()  # 模拟 Ctrl+C 已经发出停止信号
+            runWebSocket = FakeWebSocket()
+            await server.handleMessage(runWebSocket, json.dumps({"type": "runBlueprint", "id": "stop-run", "data": {"blueprint": linearBlueprint()}}))
+            terminal = runWebSocket.messages[-1]
+            self.assertEqual(terminal["type"], "blueprintComplete")  # 中止后仍然只给前端一个终态
+            self.assertEqual(terminal["data"]["status"], "failed")
+            self.assertEqual(terminal["data"]["error"]["code"], "serverStopping")
+
+            trainWebSocket = FakeWebSocket()
+            await server.handleMessage(trainWebSocket, json.dumps({"type": "trainStep", "id": "stop-train", "data": {"blueprint": trainingBlueprint()}}))
+            self.assertEqual(trainWebSocket.messages[-1]["type"], "trainStep")
+            self.assertEqual(trainWebSocket.messages[-1]["error"]["code"], "serverStopping")
+        finally:
+            engine.stopEvent.clear()  # 恢复服务状态，避免影响其他用例
+
+    async def test_each_connection_trains_its_own_model(self):
+        engine.clearModelCache()
+        self.addCleanup(engine.clearModelCache)  # 断言中途失败也不把两个连接的槽位留给后续用例
+        first, second = FakeWebSocket("editor-1"), FakeWebSocket("editor-2")  # 两个编辑器打开同一张蓝图
+        request = lambda requestId: json.dumps({"type": "trainStep", "id": requestId, "data": {"blueprint": trainingBlueprint(), "maxValues": 8}})
+        await server.handleMessage(first, request("a1"))
+        await server.handleMessage(first, request("a2"))
+        await server.handleMessage(second, request("b1"))  # 另一个连接从头训练，不接着用第一个连接的权重
+        losses = lambda websocket: [message["data"]["loss"] for message in websocket.messages if message["type"] == "trainStep"]
+        self.assertLess(losses(first)[1], losses(first)[0])  # 第一个连接确实在持续训练
+        self.assertEqual(losses(second)[0], losses(first)[0])  # 第二个连接的第一步与第一个连接的第一步完全相同
+
+        await server.handleMessage(second, json.dumps({"type": "resetTraining", "id": "reset", "data": {}}))  # 只重置第二个连接
+        await server.handleMessage(first, request("a3"))
+        self.assertLess(losses(first)[2], losses(first)[1])  # 第一个连接的训练不受另一个连接重置影响
+
+        await server.handleMessage(first, json.dumps({"type": "resetTraining", "id": "reset", "data": {}}))
+        await server.handleMessage(first, request("a4"))
+        self.assertEqual(losses(first)[3], losses(first)[0])  # 重置后训练批次和权重都按节点ID固定，第一步完全复现
+
+    async def test_disconnect_releases_connection_model(self):
+        engine.clearModelCache()
+        self.addCleanup(engine.clearModelCache)
+        slotCreated = []  # 记录断开前该连接确实建立过自己的槽位
+        originalClear = engine.clearModelCache
+
+        def recordingClear(*args, **kwargs):
+            slotCreated.append("editor-closing" in engine.modelCache)  # 清理执行前检查槽位是否存在
+            return originalClear(*args, **kwargs)
+
+        class ClosingWebSocket(FakeWebSocket):
+            def __init__(self, connectionId, messages):
+                super().__init__(connectionId)
+                self.incoming = messages
+
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                if not self.incoming:
+                    raise StopAsyncIteration  # 消息发完即模拟连接关闭
+                return self.incoming.pop(0)
+
+        websocket = ClosingWebSocket("editor-closing", [json.dumps({"type": "trainStep", "id": "t", "data": {"blueprint": trainingBlueprint(), "maxValues": 8}})])
+        with mock.patch.object(engine, "clearModelCache", recordingClear):
+            await server.handleConnection(websocket)
+        self.assertEqual(websocket.messages[0]["type"], "trainStep")
+        self.assertEqual(slotCreated, [True])  # 断开时恰好清理一次，且清理前槽位确实存在
+        self.assertNotIn("editor-closing", engine.modelCache)  # 断开后该连接的模型被释放
+
 
 if __name__ == "__main__":
     unittest.main()

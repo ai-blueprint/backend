@@ -6,12 +6,17 @@ forward 接收按输入节点 ID 命名的值，返回按输出节点 ID 命名�
 调用示例：model = compileBlueprint(blueprint); outputs = model({"input-1": tensor})
 """
 
+import asyncio  # 事件循环能力，用于把计算线程的通知送回WebSocket所在线程
+import concurrent.futures  # 线程池能力，用于把PyTorch计算移出事件循环
+import functools  # 参数绑定能力，用于把带参数的计算交给线程池
 import inspect  # 回调能力，用于兼容同步和异步通知
 import json  # 缓存键编码能力，用于比较蓝图业务内容是否变化
 import math  # 有限数值判断能力，用于生成浏览器可解析JSON
+import threading  # 线程信号能力，用于通知计算线程尽快结束
 import zlib  # 稳定哈希能力，用于把节点ID转换为固定初始化种子
 import time  # 单调计时能力，用于记录节点和蓝图耗时
 from collections import defaultdict  # 边分组能力，用于快速收集节点输入
+from uuid import uuid4  # 为每个模型实例生成独立标识
 
 import torch  # 张量能力，用于模型执行和结果序列化
 import torch.nn as nn  # 神经网络容器，用于持久注册蓝图参数
@@ -23,6 +28,78 @@ import sort  # 图排序能力，确定稳定执行顺序
 
 
 loader.loadAll()  # 进程启动时装载内置节点，编译请求可立即使用注册表
+import torch._dynamo  # noqa: E402,F401  首次创建优化器会导入它（约0.7秒且无法中途停止），启动时预先导入，首次运行不卡顿、Ctrl+C 也能及时响应
+
+
+computeExecutor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="blueprint-compute")  # 唯一计算线程：事件循环保持响应，模型缓存和注册表重载也因此天然串行
+computeExecutorActive = True  # 标记当前计算线程池是否可接受任务
+stopEvent = threading.Event()  # 服务关闭信号：计算线程在每个节点之间检查，单个PyTorch算子无法中途打断
+
+
+def startComputeRuntime():
+    global computeExecutor, computeExecutorActive
+    if not computeExecutorActive:
+        computeExecutor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="blueprint-compute")  # 新服务实例需要可用的计算线程
+        computeExecutorActive = True  # 标记线程池已重新启用
+    stopEvent.clear()  # 服务可重新接受计算任务
+
+
+def shutdownComputeRuntime():
+    global computeExecutorActive
+    if not computeExecutorActive:
+        return  # 重复清理时线程池已经关闭
+    computeExecutor.shutdown(wait=True)  # 等待所有已提交计算正常退出
+    computeExecutorActive = False  # 下次服务启动时创建新线程池
+
+
+# --- 通知计算线程停止 ---
+def requestStop():
+    stopEvent.set()  # 正在执行的编译、预览和训练会在下一个检查点中止
+
+
+# --- 计算检查点 ---
+def checkStop():
+    if stopEvent.is_set():
+        raise BlueprintError("serverStopping", "后端正在关闭，本次计算已中止")  # 走统一错误协议，前端能看到明确原因
+
+
+# --- 在计算线程执行同步任务 ---
+async def runInWorker(func, *args, **kwargs):
+    """
+    用法：result = await runInWorker(model.trainStep, 128)  # 计算期间事件循环继续处理其他连接和心跳
+    """
+    checkStop()  # 服务关闭后到达的请求直接返回serverStopping，而不是线程池已关闭的RuntimeError
+    loop = asyncio.get_running_loop()  # 结果回到调用方所在的事件循环
+    return await loop.run_in_executor(computeExecutor, functools.partial(func, *args, **kwargs))  # 排队进入唯一计算线程
+
+
+sendTimeoutSeconds = 60  # 单条反馈的最长发送等待：慢客户端不能无限期占住全局唯一的计算线程
+
+
+# --- 在事件循环线程执行一次回调 ---
+async def invokeCallback(callback, *args):
+    callbackResult = callback(*args)  # 回调始终运行在事件循环线程，与原有同步和异步回调语义一致
+    if inspect.isawaitable(callbackResult):
+        await callbackResult  # 异步回调完成后才算送达
+
+
+# --- 从计算线程调用事件循环回调并等待完成 ---
+def callOnLoop(loop, callback, *args):
+    future = asyncio.run_coroutine_threadsafe(invokeCallback(callback, *args), loop)  # 把回调交回WebSocket所在线程
+    startedAt = time.monotonic()  # 记录开始等待的时间
+    while True:
+        try:
+            return future.result(timeout=1)  # 等待发送完成，保持逐节点反馈顺序和背压
+        except concurrent.futures.TimeoutError:
+            if loop.is_closed() or not loop.is_running():
+                future.cancel()  # 事件循环已经停止时不再无限等待
+                raise RuntimeError("事件循环已停止，无法继续发送节点结果")
+            if stopEvent.is_set():
+                future.cancel()  # 服务关闭时不再等待卡住的客户端
+                raise BlueprintError("serverStopping", "后端正在关闭，本次计算已中止")
+            if time.monotonic() - startedAt > sendTimeoutSeconds:
+                future.cancel()  # 客户端长时间不接收，放弃本轮计算，把计算线程让给其他连接
+                raise BlueprintError("clientTooSlow", f"前端超过{sendTimeoutSeconds}秒未接收节点结果，本次计算已中止")
 
 
 class BlueprintError(Exception):
@@ -106,6 +183,7 @@ class BlueprintModel(nn.Module):
         nodeModules = {}  # ModuleDict 需要不含点号的稳定内部键
         self.moduleKeys = {}  # 前端节点 ID 映射到安全内部键，图协议仍保留原 ID
         for nodeIndex, nodeID in enumerate(self.sortedIDs):
+            checkStop()  # 大权重初始化很慢，每创建一个节点前确认服务没有在关闭
             node = self.nodeData[nodeID]  # 拓扑 ID 已由严格排序验证存在
             moduleKey = f"node_{nodeIndex}"  # 顺序键避开 ModuleDict 禁止的点号等前端字符
             self.moduleKeys[nodeID] = moduleKey  # 路由时通过映射找到持久模块
@@ -119,6 +197,9 @@ class BlueprintModel(nn.Module):
         self.lastNodeResults = {}  # 保存最近一次完整端口结果，预览回调和调试可读取
         self.lastNodeDurations = {}  # 保存最近一次逐节点耗时，结构化反馈统一消费
         self.trainingInputs = {}  # 保存训练批次，连续训练时每一步使用同一组输入和目标
+        self.trainingModelId = uuid4().hex  # 模型重建后前端用新标识开启一条训练曲线
+        self.trainingSeed = getNodeSeed(getModelCacheKey(blueprint))  # 同一张蓝图重建后获得相同的训练随机序列
+        self.trainingStep = 0  # 按训练步推进随机序列，不依赖其他连接的执行顺序
         trainableParameters = [parameter for nodeID in self.sortedIDs if nodeID not in self.targetNodeIDs for parameter in self.nodeModules[self.moduleKeys[nodeID]].parameters() if parameter.requires_grad]  # 只收集预测分支的可学习参数
         self.optimizerConfig = {"name": "sgd", "learningRate": 0.01, "gradientClip": 0.0}  # 保存当前训练超参数，蓝图变化时重新使用默认值
         self.optimizer = torch.optim.SGD(trainableParameters, lr=0.01) if trainableParameters else None  # 无可学习参数的普通蓝图不创建空优化器
@@ -221,6 +302,16 @@ class BlueprintModel(nn.Module):
 
     # --- 执行一次带目标值的训练步骤 ---
     def trainStep(self, maxValues=65536, optimizerName="sgd", learningRate=0.01, gradientClip=0.0):
+        seed = (self.trainingSeed + self.trainingStep) & 0xFFFFFFFF  # 每一步使用可重现的独立随机种子
+        with torch.random.fork_rng(devices=[]):  # 保存并恢复CPU随机状态，不影响其他连接或预览
+            torch.random.default_generator.manual_seed(seed)  # 只设置CPU生成器，保持当前CPU节点运行范围
+            result = self._trainStep(maxValues, optimizerName, learningRate, gradientClip)  # 在隔离随机状态下执行完整前向和反向
+        self.trainingStep += 1  # 仅成功训练后推进随机序列
+        return result  # 返回本步训练结果
+
+
+    # --- 执行隔离随机状态下的一次训练 ---
+    def _trainStep(self, maxValues=65536, optimizerName="sgd", learningRate=0.01, gradientClip=0.0):
         if self.optimizer is None:
             raise BlueprintError("noTrainableParameters", "蓝图中没有可训练参数，请加入Linear等可学习节点")  # 没有参数时无法执行权重更新
         self.configureOptimizer(optimizerName, learningRate)  # 应用用户本轮选择的优化器和学习率
@@ -231,9 +322,12 @@ class BlueprintModel(nn.Module):
         self.optimizer.zero_grad()  # 清除上一轮梯度，避免梯度跨轮累积
         if not self.trainingInputs:
             for inputID in self.inputIDs:
-                self.trainingInputs[inputID] = self.nodeModules[self.moduleKeys[inputID]]({}).get("out").detach()  # 第一步生成固定训练批次，后续重复使用
+                with torch.random.fork_rng(devices=[]):  # 隔离CPU全局随机状态，不影响预览的随机输入；节点目前都在CPU上运行，将来在GPU上生成随机数时需要把CUDA设备加入devices
+                    torch.manual_seed(getNodeSeed(inputID))  # 训练批次与权重一样按节点ID固定，重置训练后能完全复现同一条曲线
+                    self.trainingInputs[inputID] = self.nodeModules[self.moduleKeys[inputID]]({}).get("out").detach()  # 第一步生成固定训练批次，后续重复使用
         nodeResults = {}  # 保存本轮所有端口值供后续节点和损失读取
         for nodeID in self.sortedIDs:
+            checkStop()  # 服务关闭时放弃本轮训练，不执行反向传播和权重更新
             inputValues = self._collectInputs(nodeID, nodeResults, self.trainingInputs)  # 沿蓝图连线收集输入并复用固定训练批次
             if self._getOpcode(nodeID) != "input" and any(value is None for value in inputValues.values()):
                 continue  # 目标或预测分支断路时跳过当前节点
@@ -280,7 +374,7 @@ def compileBlueprint(blueprint):
         return BlueprintModel(blueprint)  # 编译期间阻止插件重载替换注册项
 
 
-modelCache = {"key": None, "model": None}  # 只缓存最近一张蓝图的编译结果，蓝图不变时复用同一组权重
+modelCache = {}  # 缓存槽位ID -> {"key", "model"}：每个编辑器连接各缓存最近一张蓝图，互不覆盖权重和优化器状态；只在计算线程读写
 
 
 # --- 计算蓝图业务内容的缓存键 ---
@@ -294,23 +388,30 @@ def getModelCacheKey(blueprint):
 
 
 # --- 蓝图未变化时复用已编译模型 ---
-def compileBlueprintCached(blueprint):
+def compileBlueprintCached(blueprint, cacheId=None):
     """
-    用法：model = compileBlueprintCached(blueprint)  # 连续运行同一蓝图时保持权重不变
+    用法：model = compileBlueprintCached(blueprint, ws.id)  # 同一连接连续运行同一蓝图时保持权重不变
+    cacheId 区分不同编辑器连接；省略时使用默认槽位。
     """
     cacheKey = getModelCacheKey(blueprint)  # 只依据业务内容判断蓝图是否变化
-    if modelCache["key"] == cacheKey and modelCache["model"] is not None:
-        return modelCache["model"]  # 蓝图未变时返回同一模型，随机的只有输入张量
+    slot = modelCache.get(cacheId)  # 读取当前连接自己的缓存槽位
+    if slot and slot["key"] == cacheKey:
+        return slot["model"]  # 蓝图未变时返回同一模型，随机的只有输入张量
     model = compileBlueprint(blueprint)  # 蓝图变化后重新编译并重新初始化权重
-    modelCache["key"] = cacheKey  # 记录当前蓝图键
-    modelCache["model"] = model  # 替换唯一缓存槽位
+    modelCache[cacheId] = {"key": cacheKey, "model": model}  # 只替换当前连接的槽位
     return model  # 返回新编译模型
 
 
 # --- 清空模型缓存 ---
-def clearModelCache():
-    modelCache["key"] = None  # 节点热重载后旧模型持有过期节点类
-    modelCache["model"] = None  # 释放模型引用，下一次运行重新编译
+def clearModelCache(cacheId=None, allSlots=True):
+    """
+    用法：clearModelCache()  # 清空全部连接的缓存（节点热重载后旧模型持有过期节点类）
+         clearModelCache(ws.id, allSlots=False)  # 只重置一个连接的训练或在断开时释放
+    """
+    if allSlots:
+        modelCache.clear()  # 释放全部模型引用，下一次运行重新编译
+    else:
+        modelCache.pop(cacheId, None)  # 只释放指定连接的模型
 
 
 # --- 将 JSON 输入规格转换为张量 ---
@@ -394,10 +495,22 @@ def serializeValue(value, maxValues=65536):
 
 
 # --- 异步运行预览并反馈节点结果 ---
-async def run(blueprint, onMessage, onError, inputs=None, maxValues=65536, compiledModel=None):
+async def run(blueprint, onMessage, onError, inputs=None, maxValues=65536, compiledModel=None, cacheId=None):
+    """
+    编译和逐节点计算都在计算线程执行，回调仍在调用方的事件循环里运行。
+    用法：result = await run(blueprint, onMessage, onError)
+    """
+    loop = asyncio.get_running_loop()  # 节点反馈必须回到当前WebSocket事件循环发送
+    notifyMessage = functools.partial(callOnLoop, loop, onMessage)  # 计算线程内同步等待结果发送完成
+    notifyError = functools.partial(callOnLoop, loop, onError)  # 错误反馈同样回到事件循环
+    return await runInWorker(runSync, blueprint, notifyMessage, notifyError, inputs, maxValues, compiledModel, cacheId)  # 计算期间事件循环继续响应其他请求
+
+
+# --- 同步运行预览并反馈节点结果 ---
+def runSync(blueprint, onMessage, onError, inputs=None, maxValues=65536, compiledModel=None, cacheId=None):
     startedAt = time.perf_counter()  # 蓝图总耗时从编译前开始计算
     try:
-        model = compiledModel or compileBlueprintCached(blueprint)  # 蓝图未变时复用同一模型，让连续观察保持权重稳定
+        model = compiledModel or compileBlueprintCached(blueprint, cacheId)  # 同一连接蓝图未变时复用同一模型，让连续观察保持权重稳定
         model.eval()  # 预览默认关闭 dropout 等训练随机行为
         modelInputs = validateModelInputs(model, parseInputs(inputs))  # 输入名称必须对应显式InputNode
         nodeResults = {}  # 当前轮次保存已经传播完成的节点端口值
@@ -405,6 +518,7 @@ async def run(blueprint, onMessage, onError, inputs=None, maxValues=65536, compi
         errorCount = 0  # 节点错误只影响自身和依赖它的下游，不终止其他分支
         with torch.no_grad():
             for nodeID in model.sortedIDs:
+                checkStop()  # 服务关闭时中止整轮预览，由下方统一返回failed终态
                 incomingEdges = model.edgesByTarget.get(nodeID, [])  # 读取当前节点全部上游连线
                 if any(edge.get("source", "") not in nodeResults for edge in incomingEdges):
                     continue  # 任一上游没有结果时跳过当前节点，下游也会自然保持无值
@@ -418,9 +532,7 @@ async def run(blueprint, onMessage, onError, inputs=None, maxValues=65536, compi
                         raise BlueprintError("invalidNodeOutput", "节点输出必须是端口对象", {"nodeId": nodeID})  # 图路由依赖命名端口
                 except Exception as error:
                     nodeError = error if isinstance(error, BlueprintError) else BlueprintError("nodeExecutionFailed", f"节点执行失败: {error}", {"nodeId": nodeID, "opcode": model._getOpcode(nodeID)})
-                    callbackResult = onError(nodeID, nodeError.toData())  # 错误只标记当前节点
-                    if inspect.isawaitable(callbackResult):
-                        await callbackResult  # 错误图标先更新，再继续计算其他独立分支
+                    onError(nodeID, nodeError.toData())  # 错误只标记当前节点，反馈送达后再继续计算其他独立分支
                     errorCount += 1
                     continue
                 durationMs = (time.perf_counter() - nodeStartedAt) * 1000  # 计算完成后立即得到本节点耗时
@@ -428,9 +540,7 @@ async def run(blueprint, onMessage, onError, inputs=None, maxValues=65536, compi
                 nodeDurations[nodeID] = durationMs  # 保存最近一次节点耗时
                 opcode = model.nodeData[nodeID].get("data", {}).get("opcode", "")  # 节点类型随结果返回
                 report = {"opcode": opcode, "outputs": serializeValue(outputValues, maxValues), "durationMs": durationMs}  # 序列化当前节点全部张量端口
-                callbackResult = onMessage(nodeID, report)  # 当前节点计算完成后立即反馈，不等待整图结束
-                if inspect.isawaitable(callbackResult):
-                    await callbackResult  # WebSocket发送完成后再计算下游节点
+                onMessage(nodeID, report)  # 当前节点计算完成后立即反馈，发送完成后再计算下游节点
 
         model.lastNodeResults = nodeResults  # 完整传播结束后保存最近结果
         model.lastNodeDurations = nodeDurations  # 完整传播结束后保存最近耗时
@@ -441,8 +551,7 @@ async def run(blueprint, onMessage, onError, inputs=None, maxValues=65536, compi
         return {"status": status, "outputs": serializeValue(modelOutputs, maxValues), "outputNodeIds": completedOutputIDs, "errorCount": errorCount, "durationMs": durationMs}  # 返回本轮完整终态
     except Exception as error:
         blueprintError = error if isinstance(error, BlueprintError) else BlueprintError("blueprintFailed", str(error))  # 未分类异常统一收口
-        callbackResult = onError(blueprintError.details.get("nodeId", ""), blueprintError.toData())  # 流式反馈结构化错误
-        if inspect.isawaitable(callbackResult):
-            await callbackResult  # 确保错误先于终态返回
+        if blueprintError.code != "clientTooSlow":
+            onError(blueprintError.details.get("nodeId", ""), blueprintError.toData())  # 流式反馈结构化错误，确保错误先于终态返回；不接收数据的客户端不再重复等待
         durationMs = (time.perf_counter() - startedAt) * 1000  # 失败同样报告已消耗时间
         return {"status": "failed", "error": blueprintError.toData(), "outputNodeIds": [], "errorCount": 1, "durationMs": durationMs}  # 由调用方仍发送一次 blueprintComplete

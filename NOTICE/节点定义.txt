@@ -83,7 +83,7 @@
                         compute(input)
                                 Softplus 激活
                 LeakyReLUNode 带泄漏归正节点
-                        opcode="leakyRelu"
+                        opcode="leaky_relu"（旧蓝图中的"leakyRelu"仍可兼容）
                         params={negativeSlope, inplace}
                         build()
                                 创建 nn.LeakyReLU 层
